@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>FretQuiz — Guitar Note Trainer</title>
+<meta name="description" content="Practice reading the guitar fretboard. A note lights up — you name it. Track your streak and get faster." />
+
+<!-- PWA -->
+<meta name="theme-color" content="#120c09" />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icons/icon-192.png" sizes="192x192" type="image/png" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="FretQuiz" />
+<meta name="mobile-web-app-capable" content="yes" />
+
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<div class="stage">
+
+  <!-- ===== Header ===== -->
+  <header class="hdr">
+    <div class="hdr-title">
+      <span class="hdr-badge">FretQuiz</span>
+      <span class="hdr-tag">guitar note trainer</span>
+    </div>
+
+    <div class="hdr-controls">
+      <div class="lcd" aria-live="polite">
+        <div class="lcd-row">
+          <span class="lcd-label">streak</span>
+          <span class="lcd-value" id="streakValue">0</span>
+        </div>
+        <div class="lcd-div"></div>
+        <div class="lcd-row">
+          <span class="lcd-label">acc</span>
+          <span class="lcd-value" id="accValue">—</span>
+        </div>
+      </div>
+
+      <button class="icon-btn" id="soundToggle" type="button" aria-pressed="true" aria-label="Toggle sound">
+        <svg viewBox="0 0 24 24" class="icon-on"><path d="M4 9v6h4l5 5V4L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M19 6a9 9 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <svg viewBox="0 0 24 24" class="icon-off"><path d="M4 9v6h4l5 5V4L8 9H4z"/><path d="M16 9l5 6M21 9l-5 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+
+      <button class="icon-btn install-btn" id="installBtn" type="button" hidden>
+        <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 17v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span>Install</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ===== Fretboard stage ===== -->
+  <main class="board-card">
+    <div class="board-wrap">
+      <svg id="board" viewBox="0 0 1040 340" role="img" aria-label="Guitar fretboard">
+        <!-- populated by js: wood body, frets, strings, inlays, marker -->
+      </svg>
+    </div>
+
+    <div class="prompt-row">
+      <p class="prompt-text" id="promptText">Tap <strong>Start</strong> to begin</p>
+      <div class="timer-track" id="timerTrack" hidden><div class="timer-bar" id="timerBar"></div></div>
+    </div>
+  </main>
+
+  <!-- ===== Answer pad ===== -->
+  <section class="pad-wrap">
+    <div class="note-pad" id="notePad" aria-label="Note answers"></div>
+    <button class="start-btn" id="startBtn" type="button">Start</button>
+  </section>
+
+  <!-- ===== Settings ===== -->
+  <details class="settings" id="settingsPanel">
+    <summary>⚙ Settings</summary>
+    <div class="settings-grid">
+
+      <div class="set-group">
+        <h3>Strings</h3>
+        <div class="string-toggles" id="stringToggles"></div>
+      </div>
+
+      <div class="set-group">
+        <h3>Fret range</h3>
+        <div class="radio-row" id="rangeRadios">
+          <label><input type="radio" name="range" value="0-4"> Open <span>0–4</span></label>
+          <label><input type="radio" name="range" value="0-7"> Standard <span>0–7</span></label>
+          <label><input type="radio" name="range" value="0-12" checked> Full neck <span>0–12</span></label>
+        </div>
+      </div>
+
+      <div class="set-group">
+        <h3>Notation</h3>
+        <div class="radio-row" id="accidentalRadios">
+          <label><input type="radio" name="accidental" value="sharp" checked> Sharps <span>C♯</span></label>
+          <label><input type="radio" name="accidental" value="flat"> Flats <span>D♭</span></label>
+        </div>
+      </div>
+
+      <div class="set-group">
+        <h3>Difficulty</h3>
+        <label class="switch-row">
+          <span>Naturals only <small>(no sharps/flats as answers)</small></span>
+          <input type="checkbox" id="naturalsOnly">
+        </label>
+        <label class="switch-row">
+          <span>Timed rounds <small>(answer before the bar runs out)</small></span>
+          <input type="checkbox" id="timerEnabled">
+        </label>
+        <label class="switch-row" id="timerSecondsRow" hidden>
+          <span>Seconds per note</span>
+          <select id="timerSeconds">
+            <option value="5">5s</option>
+            <option value="8" selected>8s</option>
+            <option value="12">12s</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="set-group">
+        <h3>Data</h3>
+        <button class="ghost-btn" id="resetStats" type="button">Reset stats</button>
+      </div>
+
+    </div>
+  </details>
+
+  <p class="install-hint" id="iosHint" hidden>On iPhone/iPad: tap <strong>Share</strong> → <strong>Add to Home Screen</strong> to install FretQuiz.</p>
+
+  <footer class="foot">
+    <span>Works offline once loaded · Add to Home Screen to install</span>
+  </footer>
+
+</div>
+
+<script src="js/app.js"></script>
+</body>
+</html>
