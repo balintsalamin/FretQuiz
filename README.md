@@ -1,17 +1,57 @@
 # FretQuiz — Guitar Fretboard Note Trainer
 
-A note lights up on the fretboard. You name it. Streak, accuracy, and a
-few difficulty settings are built in. It's a installable PWA — once
-you visit it in a browser you can add it to your home screen / dock
-and it behaves like a real app icon, works offline, no browser chrome.
+A note lights up on the fretboard. You name it. Or: it names a note
+and you find it. Or: it names a note and you play it on a real guitar.
+Streak, accuracy, and a few difficulty settings are built in. It's an
+installable PWA — once you visit it in a browser you can add it to
+your home screen / dock and it behaves like a real app icon, works
+offline, no browser chrome.
 
 No build step, no dependencies. Plain HTML/CSS/JS.
+
+## Modes
+
+- **Name the Note** — a note lights up on the board, tap the matching
+  letter on the answer pad (or press the key on your keyboard).
+- **Find the Note** — a note name is shown, tap the matching position
+  anywhere on the fretboard. Any correct string/fret counts.
+- **Play the Note** — a note name is shown, play it on a real guitar.
+  Your browser's microphone listens and detects the pitch — no
+  clicking required. See **Microphone mode** below for details and
+  limitations.
+
+**Show note names** (in Settings → Display) overlays every fret with
+its note name — handy as training wheels while learning, or as a
+built-in hint in Find/Play mode.
+
+## Microphone mode
+
+"Play the Note" uses a small pitch-detection routine (autocorrelation
+on live mic input, no external libraries) to recognize what note
+you're playing, regardless of which string/octave you play it on.
+
+Notes on how well it works:
+- Needs a browser with microphone support running in a **secure
+  context** (`https://` — GitHub Pages qualifies, `localhost` also
+  works for local testing). If unsupported, that mode is simply
+  disabled with an explanation, rather than offered and failing.
+- Works best with one note at a time, let it ring for a moment, in a
+  reasonably quiet room. Chords, heavy distortion, or a noisy room
+  will confuse it.
+- The browser will prompt for microphone permission the first time
+  you press Start in this mode. The mic is released again when you
+  press Stop.
+- It's a simple, from-scratch detector — not a professional-grade
+  tuner. If it's misreading you consistently, try playing a bit
+  louder/closer to the mic, or fret higher up the neck where the
+  signal is cleaner.
 
 ## Run it locally
 
 Opening `index.html` directly (`file://…`) will mostly work, but the
 service worker (offline support) only activates when served over
-`http(s)`. Easiest local test:
+`http(s)`, and microphone access requires `http(s)` too. Easiest local
+test:
 
 ```bash
 python3 -m http.server 8080
@@ -66,11 +106,21 @@ above — no config changes needed either way.
   top of `css/style.css` (`:root { … }`).
 - **Fret range presets:** edit the `<div id="rangeRadios">` options in
   `index.html`.
+- **Mic sensitivity:** `MIC_CLARITY_THRESHOLD` (how confident a pitch
+  reading must be) and `MIC_STABLE_FRAMES` (how many consecutive good
+  frames before it accepts an answer) are constants near the top of
+  the mic section in `js/app.js`.
 
 ## Notes
 
 - Stats and settings are stored in the browser's `localStorage`, per
   device/browser — there's no account or syncing.
-- Everything (including the little correct/wrong tones) is generated
-  in-browser; there are no external asset or font requests, so it
-  stays fully usable offline once loaded.
+- Everything (including the little correct/wrong tones and the pitch
+  detector) is generated/computed in-browser; there are no external
+  asset, font, or API requests, so it stays fully usable offline once
+  loaded (microphone input obviously requires the mic itself, and
+  won't work offline in the sense that there's nothing to fetch, but
+  it doesn't need a network connection to function either).
+- Shipped a new version of the app shell? Bump `CACHE_NAME` at the top
+  of `sw.js` (e.g. `v2` → `v3`) so anyone with it already installed
+  gets a clean update instead of a stale cache.
