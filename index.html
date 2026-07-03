@@ -54,6 +54,17 @@
     </div>
   </header>
 
+  <!-- ===== Mode switch ===== -->
+  <div class="mode-switch" id="modeSwitch" role="group" aria-label="Practice mode">
+    <button type="button" class="mode-btn" data-mode="identify" aria-pressed="true">Name the Note</button>
+    <button type="button" class="mode-btn" data-mode="locate" aria-pressed="false">Find the Note</button>
+    <button type="button" class="mode-btn" data-mode="mic" aria-pressed="false">Play the Note</button>
+  </div>
+  <p class="mic-support-note" id="micUnsupportedNote" hidden>
+    "Play the Note" needs microphone support in a secure (https) context — it's unavailable on this
+    browser/connection, so that mode is disabled here.
+  </p>
+
   <!-- ===== Fretboard stage ===== -->
   <main class="board-card">
     <div class="board-wrap">
@@ -63,8 +74,29 @@
     </div>
 
     <div class="prompt-row">
+      <div class="target-badge" id="targetNoteWrap" hidden>
+        <span class="target-label" id="targetNoteLabel">find</span>
+        <span class="target-note" id="targetNoteEl">C</span>
+      </div>
       <p class="prompt-text" id="promptText">Tap <strong>Start</strong> to begin</p>
       <div class="timer-track" id="timerTrack" hidden><div class="timer-bar" id="timerBar"></div></div>
+    </div>
+
+    <div class="mic-panel" id="micPanel" hidden>
+      <div class="mic-orb" id="micOrb" aria-hidden="true">
+        <svg viewBox="0 0 24 24">
+          <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/>
+          <path d="M19 11a7 7 0 0 1-14 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M12 18v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="mic-readout">
+        <div class="mic-heard">
+          <span class="mic-heard-label">hearing</span>
+          <span class="mic-heard-note" id="micHeardNote">—</span>
+        </div>
+        <div class="mic-cents-track"><div class="mic-cents-needle" id="micCentsNeedle"></div></div>
+      </div>
     </div>
   </main>
 
@@ -118,6 +150,14 @@
             <option value="8" selected>8s</option>
             <option value="12">12s</option>
           </select>
+        </label>
+      </div>
+
+      <div class="set-group">
+        <h3>Display</h3>
+        <label class="switch-row">
+          <span>Show note names <small>(labels every fret — a hint while learning, or in Find/Play mode)</small></span>
+          <input type="checkbox" id="showNotes">
         </label>
       </div>
 
