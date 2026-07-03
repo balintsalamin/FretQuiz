@@ -57,6 +57,8 @@
     timerEnabled: false,
     timerSeconds: 8,
     sound: true,
+    mode: 'identify',      // 'identify' | 'locate' | 'mic'
+    showNotes: false,
   });
   const defaultStats = () => ({ streak: 0, bestStreak: 0, correct: 0, total: 0 });
 
@@ -84,11 +86,12 @@
 
   const state = {
     playing: false,
-    current: null,      // { stringIndex, fret, noteIndex }
+    current: null,      // { stringIndex, fret, noteIndex } (stringIndex/fret null in mic mode)
     lastPick: null,
     advanceHandle: null,
     timeoutHandle: null,
     dangerHandle: null,
+    micStreak: { note: null, count: 0 },
   };
 
   /* =======================================================
@@ -112,8 +115,19 @@
   const timerSecondsRow = document.getElementById('timerSecondsRow');
   const timerSecondsEl = document.getElementById('timerSeconds');
   const resetStatsBtn = document.getElementById('resetStats');
+  const showNotesEl = document.getElementById('showNotes');
+  const modeSwitch = document.getElementById('modeSwitch');
+  const micUnsupportedNote = document.getElementById('micUnsupportedNote');
+  const targetNoteWrap = document.getElementById('targetNoteWrap');
+  const targetNoteLabel = document.getElementById('targetNoteLabel');
+  const targetNoteEl = document.getElementById('targetNoteEl');
+  const micPanel = document.getElementById('micPanel');
+  const micOrb = document.getElementById('micOrb');
+  const micHeardNote = document.getElementById('micHeardNote');
+  const micCentsNeedle = document.getElementById('micCentsNeedle');
 
-  let markerEl, dimLeft, dimRight;
+  let markerEl, dimLeft, dimRight, hitGroupEl, noteLabelsGroupEl;
+  const noteLabelEls = []; // [{ el, noteIndex }] for relabeling on accidental change
 
   /* =======================================================
      Build the fretboard SVG
@@ -185,13 +199,46 @@
       boardSvg.appendChild(lbl);
     });
 
+    // note-name reference chips (toggled via "Show note names")
+    noteLabelsGroupEl = el('g', { id: 'noteLabelsGroup', class: 'fb-notelabels' });
+    STRINGS.forEach((s, si) => {
+      const strGroup = el('g', { class: 'fb-notelabel-string', 'data-string-index': si });
+      for (let fret = 0; fret <= FRETS; fret++) {
+        const cx = fret === 0 ? OPEN_X : fretCellX(fret);
+        const noteIndex = (s.openIndex + fret) % 12;
+        strGroup.appendChild(el('circle', { class: 'fb-notechip', cx, cy: s.y, r: 11 }));
+        const t = el('text', { class: 'fb-notechip-label', x: cx, y: s.y });
+        t.textContent = noteLabel(noteIndex);
+        strGroup.appendChild(t);
+        noteLabelEls.push({ el: t, noteIndex });
+      }
+      noteLabelsGroupEl.appendChild(strGroup);
+    });
+    boardSvg.appendChild(noteLabelsGroupEl);
+
     // dim overlays for excluded fret range
     dimLeft = el('rect', { id: 'dimLeftZone', class: 'fb-zone-dim', x: 0, y: NECK_TOP, width: 0, height: NECK_BOTTOM - NECK_TOP });
     dimRight = el('rect', { id: 'dimRightZone', class: 'fb-zone-dim', x: BOARD_RIGHT, y: NECK_TOP, width: 0, height: NECK_BOTTOM - NECK_TOP });
     boardSvg.appendChild(dimLeft);
     boardSvg.appendChild(dimRight);
 
-    // marker (the note to identify)
+    // clickable hit-grid for "Find the Note" mode (invisible, one cell per string/fret)
+    hitGroupEl = el('g', { id: 'hitGroup', class: 'fb-hitgroup' });
+    STRINGS.forEach((s, si) => {
+      for (let fret = 0; fret <= FRETS; fret++) {
+        const x0 = fret === 0 ? 0 : fretLineX(fret - 1);
+        const x1 = fret === 0 ? NUT_X : fretLineX(fret);
+        const h = STEP_Y * 0.9;
+        hitGroupEl.appendChild(el('rect', {
+          class: 'fb-hit', 'data-string-index': si, 'data-fret': fret,
+          x: x0, y: s.y - h / 2, width: x1 - x0, height: h,
+        }));
+      }
+    });
+    hitGroupEl.addEventListener('click', onBoardClick);
+    boardSvg.appendChild(hitGroupEl);
+
+    // marker (the note to identify / the reveal after answering)
     markerEl = el('g', { id: 'noteMarker', class: 'fb-marker hidden', transform: `translate(${OPEN_X},${TOP_Y})` });
     markerEl.appendChild(el('circle', { class: 'fb-marker-glow1', r: 26 }));
     markerEl.appendChild(el('circle', { class: 'fb-marker-glow2', r: 19 }));
@@ -217,16 +264,28 @@
     STRINGS.forEach((s, i) => {
       const lineEl = boardSvg.querySelector(`.fb-string[data-string-index="${i}"]`);
       if (lineEl) lineEl.classList.toggle('disabled', !settings.strings[i]);
+      const labelGroupEl = boardSvg.querySelector(`.fb-notelabel-string[data-string-index="${i}"]`);
+      if (labelGroupEl) labelGroupEl.classList.toggle('disabled', !settings.strings[i]);
     });
+  }
+
+  function applyShowNotes() {
+    if (noteLabelsGroupEl) noteLabelsGroupEl.classList.toggle('visible', settings.showNotes);
+  }
+
+  function updateNoteLabelsText() {
+    noteLabelEls.forEach(({ el: t, noteIndex }) => { t.textContent = noteLabel(noteIndex); });
   }
 
   /* =======================================================
      Notation helpers
      ======================================================= */
-  const noteLabel = idx => (settings.accidental === 'flat' ? NOTE_FLAT : NOTE_SHARP)[idx];
+  function noteLabel(idx) {
+    return (settings.accidental === 'flat' ? NOTE_FLAT : NOTE_SHARP)[idx];
+  }
 
   /* =======================================================
-     Answer pad
+     Answer pad (identify mode)
      ======================================================= */
   function renderNotePad() {
     notePad.innerHTML = '';
@@ -237,14 +296,39 @@
       btn.className = 'note-btn';
       btn.dataset.noteIndex = idx;
       btn.textContent = noteLabel(idx);
-      btn.addEventListener('click', () => handleAnswer(idx, btn, false));
+      btn.addEventListener('click', () => handleAnswer(idx, { btnEl: btn }, false));
       notePad.appendChild(btn);
     });
     syncPadDisabled();
   }
   function syncPadDisabled() {
-    const enabled = state.playing && !!state.current;
+    const enabled = state.playing && !!state.current && settings.mode === 'identify';
     Array.from(notePad.children).forEach(b => { b.disabled = !enabled; });
+  }
+
+  /* =======================================================
+     Mode switching (Name it / Find it / Play it)
+     ======================================================= */
+  function applyModeUI() {
+    Array.from(modeSwitch.querySelectorAll('.mode-btn')).forEach(b => {
+      b.setAttribute('aria-pressed', String(b.dataset.mode === settings.mode));
+    });
+    notePad.style.display = settings.mode === 'identify' ? '' : 'none';
+    if (hitGroupEl) hitGroupEl.classList.toggle('active', settings.mode === 'locate');
+    if (settings.mode !== 'mic') micPanel.hidden = true;
+    if (settings.mode === 'identify') targetNoteWrap.hidden = true;
+  }
+
+  function wireModeSwitch() {
+    Array.from(modeSwitch.querySelectorAll('.mode-btn')).forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (btn.disabled || btn.dataset.mode === settings.mode) return;
+        if (state.playing) stopSession();
+        settings.mode = btn.dataset.mode;
+        saveState();
+        applyModeUI();
+      });
+    });
   }
 
   /* =======================================================
@@ -262,6 +346,9 @@
     }
     return pairs;
   }
+  function getEligibleNoteIndexes() {
+    return Array.from(new Set(getEligiblePairs().map(p => p.noteIndex)));
+  }
 
   function nextQuestion() {
     clearTimeout(state.advanceHandle);
@@ -269,52 +356,109 @@
     clearTimeout(state.dangerHandle);
     hideTimerBar();
 
-    const pairs = getEligiblePairs();
-    if (pairs.length === 0) {
-      promptText.textContent = 'No notes match these settings — enable a string or widen the range.';
-      stopSession();
-      return;
+    const mode = settings.mode;
+
+    if (mode === 'mic') {
+      const notes = getEligibleNoteIndexes();
+      if (notes.length === 0) {
+        promptText.textContent = 'No notes match these settings — enable a string or widen the range.';
+        stopSession();
+        return;
+      }
+      let noteIndex;
+      do {
+        noteIndex = notes[Math.floor(Math.random() * notes.length)];
+      } while (notes.length > 1 && state.lastPick && noteIndex === state.lastPick.noteIndex);
+      state.lastPick = { noteIndex };
+      state.current = { noteIndex, stringIndex: null, fret: null };
+      state.micStreak = { note: null, count: 0 };
+    } else {
+      const pairs = getEligiblePairs();
+      if (pairs.length === 0) {
+        promptText.textContent = 'No notes match these settings — enable a string or widen the range.';
+        stopSession();
+        return;
+      }
+      let pick;
+      do {
+        pick = pairs[Math.floor(Math.random() * pairs.length)];
+      } while (pairs.length > 1 && state.lastPick &&
+               pick.stringIndex === state.lastPick.stringIndex && pick.fret === state.lastPick.fret);
+      state.lastPick = pick;
+      state.current = pick;
     }
-    let pick;
-    do {
-      pick = pairs[Math.floor(Math.random() * pairs.length)];
-    } while (pairs.length > 1 && state.lastPick &&
-             pick.stringIndex === state.lastPick.stringIndex && pick.fret === state.lastPick.fret);
-    state.lastPick = pick;
-    state.current = pick;
 
-    positionMarker(pick.stringIndex, pick.fret);
-    markerEl.classList.remove('hidden', 'correct', 'wrong');
-
-    Array.from(notePad.children).forEach(b => { b.disabled = false; b.classList.remove('is-correct', 'is-wrong'); });
     promptText.classList.remove('correct', 'wrong');
-    promptText.textContent = 'Which note is this?';
+
+    if (mode === 'identify') {
+      positionMarker(state.current.stringIndex, state.current.fret);
+      markerEl.classList.remove('hidden', 'correct', 'wrong');
+      targetNoteWrap.hidden = true;
+      micPanel.hidden = true;
+      Array.from(notePad.children).forEach(b => { b.disabled = false; b.classList.remove('is-correct', 'is-wrong'); });
+      promptText.textContent = 'Which note is this?';
+    } else if (mode === 'locate') {
+      markerEl.classList.add('hidden');
+      markerEl.classList.remove('correct', 'wrong');
+      micPanel.hidden = true;
+      targetNoteWrap.hidden = false;
+      targetNoteLabel.textContent = 'find';
+      targetNoteEl.textContent = noteLabel(state.current.noteIndex);
+      promptText.textContent = 'Tap the matching note on the fretboard';
+    } else { // mic
+      markerEl.classList.add('hidden');
+      markerEl.classList.remove('correct', 'wrong');
+      targetNoteWrap.hidden = false;
+      targetNoteLabel.textContent = 'play';
+      targetNoteEl.textContent = noteLabel(state.current.noteIndex);
+      micPanel.hidden = false;
+      micHeardNote.textContent = '—';
+      micHeardNote.classList.remove('match');
+      updateCentsNeedle(null);
+      promptText.textContent = 'Play that note on your guitar';
+      startMicLoop();
+    }
 
     if (settings.timerEnabled) {
       showTimerBar(settings.timerSeconds);
-      state.timeoutHandle = setTimeout(() => handleAnswer(-1, null, true), settings.timerSeconds * 1000);
+      state.timeoutHandle = setTimeout(() => handleAnswer(-1, {}, true), settings.timerSeconds * 1000);
     }
   }
 
-  function handleAnswer(selectedIndex, btnEl, isTimeout) {
+  function handleAnswer(selectedIndex, meta, isTimeout) {
     if (!state.playing || !state.current) return;
     clearTimeout(state.timeoutHandle);
     clearTimeout(state.dangerHandle);
     hideTimerBar();
 
+    meta = meta || {};
+    const mode = settings.mode;
     const correctIndex = state.current.noteIndex;
     const isCorrect = !isTimeout && selectedIndex === correctIndex;
+    let pluckStringIndex = null;
 
-    Array.from(notePad.children).forEach(b => { b.disabled = true; });
-    const correctBtn = notePad.querySelector(`[data-note-index="${correctIndex}"]`);
-    if (correctBtn) correctBtn.classList.add('is-correct');
-    if (!isCorrect && btnEl) btnEl.classList.add('is-wrong');
+    if (mode === 'identify') {
+      Array.from(notePad.children).forEach(b => { b.disabled = true; });
+      const correctBtn = notePad.querySelector(`[data-note-index="${correctIndex}"]`);
+      if (correctBtn) correctBtn.classList.add('is-correct');
+      if (!isCorrect && meta.btnEl) meta.btnEl.classList.add('is-wrong');
+      markerEl.classList.toggle('correct', isCorrect);
+      markerEl.classList.toggle('wrong', !isCorrect);
+      pluckStringIndex = state.current.stringIndex;
+    } else if (mode === 'locate') {
+      const posStringIndex = isTimeout ? state.current.stringIndex : meta.stringIndex;
+      const posFret = isTimeout ? state.current.fret : meta.fret;
+      positionMarker(posStringIndex, posFret);
+      markerEl.classList.remove('hidden');
+      markerEl.classList.toggle('correct', isCorrect);
+      markerEl.classList.toggle('wrong', !isCorrect);
+      pluckStringIndex = posStringIndex;
+    } else { // mic
+      stopMicLoop();
+    }
 
-    markerEl.classList.toggle('correct', isCorrect);
-    markerEl.classList.toggle('wrong', !isCorrect);
-
-    if (isCorrect) {
-      const strEl = boardSvg.querySelector(`.fb-string[data-string-index="${state.current.stringIndex}"]`);
+    if (isCorrect && pluckStringIndex !== null) {
+      const strEl = boardSvg.querySelector(`.fb-string[data-string-index="${pluckStringIndex}"]`);
       if (strEl) {
         strEl.classList.remove('fb-string-hit');
         void strEl.getBoundingClientRect();
@@ -335,21 +479,44 @@
     saveState();
     updateLCD();
 
-    const label = noteLabel(correctIndex);
+    const targetLabel = noteLabel(correctIndex);
     promptText.classList.remove('correct', 'wrong');
     if (isCorrect) {
-      promptText.innerHTML = `Nice — that's <strong>${label}</strong>`;
+      promptText.innerHTML = `Nice — that's <strong>${targetLabel}</strong>`;
       promptText.classList.add('correct');
     } else if (isTimeout) {
-      promptText.innerHTML = `Too slow — it was <strong>${label}</strong>`;
+      promptText.innerHTML = `Too slow — it was <strong>${targetLabel}</strong>`;
       promptText.classList.add('wrong');
-    } else {
-      promptText.innerHTML = `Not quite — it was <strong>${label}</strong>`;
+    } else if (mode === 'identify') {
+      promptText.innerHTML = `Not quite — it was <strong>${targetLabel}</strong>`;
+      promptText.classList.add('wrong');
+    } else if (mode === 'locate') {
+      const clickedLabel = noteLabel(selectedIndex);
+      promptText.innerHTML = `That's <strong>${clickedLabel}</strong> — looking for <strong>${targetLabel}</strong>`;
+      promptText.classList.add('wrong');
+    } else { // mic
+      const heardLabel = noteLabel(selectedIndex);
+      promptText.innerHTML = `Heard <strong>${heardLabel}</strong> — looking for <strong>${targetLabel}</strong>`;
       promptText.classList.add('wrong');
     }
 
     state.current = null;
     state.advanceHandle = setTimeout(() => { if (state.playing) nextQuestion(); }, isCorrect ? 900 : 1500);
+  }
+
+  /* =======================================================
+     "Find the Note" mode: clicking the fretboard
+     ======================================================= */
+  function onBoardClick(e) {
+    if (settings.mode !== 'locate' || !state.playing || !state.current) return;
+    const rect = e.target && e.target.closest ? e.target.closest('.fb-hit') : null;
+    if (!rect) return;
+    const si = Number(rect.dataset.stringIndex);
+    const fret = Number(rect.dataset.fret);
+    if (!settings.strings[si]) return;
+    if (fret < settings.rangeMin || fret > settings.rangeMax) return;
+    const noteIndex = (STRINGS[si].openIndex + fret) % 12;
+    handleAnswer(noteIndex, { stringIndex: si, fret }, false);
   }
 
   function showTimerBar(seconds) {
@@ -368,25 +535,197 @@
     timerBar.style.width = '100%';
   }
 
-  function startSession() {
+  /* =======================================================
+     "Play the Note" mode: microphone pitch detection
+     No external libraries — a small autocorrelation (ACF)
+     pitch detector running on live mic input.
+     ======================================================= */
+  const secureCtx = typeof window.isSecureContext === 'boolean' ? window.isSecureContext : true;
+  const micSupported = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) && secureCtx;
+
+  let micStream = null, micAudioCtx = null, micAnalyser = null, micDataBuf = null, micRAFId = null;
+  const MIC_CLARITY_THRESHOLD = 0.90;
+  const MIC_STABLE_FRAMES = 10;
+
+  async function ensureMicAccess() {
+    if (micAnalyser) return;
+    if (!micSupported) throw new Error('this browser has no microphone support.');
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    });
+    micAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = micAudioCtx.createMediaStreamSource(micStream);
+    micAnalyser = micAudioCtx.createAnalyser();
+    micAnalyser.fftSize = 2048;
+    micDataBuf = new Float32Array(micAnalyser.fftSize);
+    src.connect(micAnalyser);
+  }
+
+  function teardownMic() {
+    if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+    if (micAudioCtx) { micAudioCtx.close().catch(() => {}); micAudioCtx = null; }
+    micAnalyser = null;
+    micDataBuf = null;
+  }
+
+  // Autocorrelation pitch detector (ACF-style): trims near-silence,
+  // finds the lag of strongest self-similarity beyond the first
+  // downward slope, then refines it with parabolic interpolation.
+  function autoCorrelate(buf, sampleRate) {
+    let rms = 0;
+    for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
+    rms = Math.sqrt(rms / buf.length);
+    if (rms < 0.01) return { frequency: -1, clarity: 0, rms };
+
+    let start = 0, end = buf.length - 1;
+    const thresh = rms * 0.5;
+    while (start < buf.length && Math.abs(buf[start]) < thresh) start++;
+    while (end > 0 && Math.abs(buf[end]) < thresh) end--;
+    if (end - start < 512) return { frequency: -1, clarity: 0, rms };
+    const trimmed = buf.slice(start, end + 1);
+    const size = trimmed.length;
+
+    let energy = 0;
+    for (let i = 0; i < size; i++) energy += trimmed[i] * trimmed[i];
+    if (energy <= 0) return { frequency: -1, clarity: 0, rms };
+
+    const minLag = Math.max(2, Math.floor(sampleRate / 1000));  // ignore >1000Hz
+    const maxLag = Math.min(size - 1, Math.floor(sampleRate / 70)); // ignore <70Hz
+    if (maxLag <= minLag) return { frequency: -1, clarity: 0, rms };
+
+    const corr = new Float32Array(maxLag + 1);
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      let sum = 0;
+      for (let i = 0; i < size - lag; i++) sum += trimmed[i] * trimmed[i + lag];
+      corr[lag] = sum;
+    }
+
+    let d = minLag;
+    while (d < maxLag - 1 && corr[d] > corr[d + 1]) d++;
+
+    let bestLag = -1, bestVal = -Infinity;
+    for (let lag = d; lag <= maxLag; lag++) {
+      if (corr[lag] > bestVal) { bestVal = corr[lag]; bestLag = lag; }
+    }
+    if (bestLag <= 0) return { frequency: -1, clarity: 0, rms };
+
+    let refinedLag = bestLag;
+    const prev = corr[bestLag - 1], curr = corr[bestLag], next = corr[bestLag + 1];
+    if (next !== undefined) {
+      const denom = (prev - 2 * curr + next);
+      if (denom !== 0) refinedLag = bestLag + 0.5 * (prev - next) / denom;
+    }
+
+    const clarity = bestVal / energy;
+    const frequency = sampleRate / refinedLag;
+    return { frequency, clarity, rms };
+  }
+
+  function updateCentsNeedle(cents) {
+    if (!micCentsNeedle) return;
+    if (cents === null) {
+      micCentsNeedle.style.left = '50%';
+      micCentsNeedle.classList.remove('in-tune');
+      return;
+    }
+    const pct = 50 + (cents / 50) * 46;
+    micCentsNeedle.style.left = pct + '%';
+    micCentsNeedle.classList.toggle('in-tune', Math.abs(cents) <= 10);
+  }
+
+  function startMicLoop() {
+    if (micRAFId !== null || !micAnalyser) return;
+    micOrb.classList.add('hot');
+    const loop = () => {
+      if (!(state.playing && settings.mode === 'mic' && state.current) || !micAnalyser) {
+        micRAFId = null;
+        micOrb.classList.remove('hot');
+        return;
+      }
+      micAnalyser.getFloatTimeDomainData(micDataBuf);
+      const { frequency, clarity } = autoCorrelate(micDataBuf, micAudioCtx.sampleRate);
+
+      if (frequency > 0 && clarity > MIC_CLARITY_THRESHOLD) {
+        const midi = 69 + 12 * Math.log2(frequency / 440);
+        const rounded = Math.round(midi);
+        const heardIndex = ((rounded % 12) + 12) % 12;
+        const cents = Math.max(-50, Math.min(50, Math.round((midi - rounded) * 100)));
+
+        micHeardNote.textContent = noteLabel(heardIndex);
+        micHeardNote.classList.toggle('match', heardIndex === state.current.noteIndex);
+        updateCentsNeedle(cents);
+
+        if (state.micStreak.note === heardIndex) state.micStreak.count++;
+        else state.micStreak = { note: heardIndex, count: 1 };
+
+        if (state.micStreak.count >= MIC_STABLE_FRAMES) {
+          micRAFId = null;
+          micOrb.classList.remove('hot');
+          handleAnswer(heardIndex, {}, false);
+          return;
+        }
+      } else {
+        micHeardNote.textContent = '—';
+        micHeardNote.classList.remove('match');
+        updateCentsNeedle(null);
+        state.micStreak = { note: null, count: 0 };
+      }
+
+      micRAFId = requestAnimationFrame(loop);
+    };
+    micRAFId = requestAnimationFrame(loop);
+  }
+
+  function stopMicLoop() {
+    if (micRAFId !== null) { cancelAnimationFrame(micRAFId); micRAFId = null; }
+    if (micOrb) micOrb.classList.remove('hot');
+  }
+
+  /* =======================================================
+     Session start/stop
+     ======================================================= */
+  async function startSession() {
     ensureAudio();
+
+    if (settings.mode === 'mic') {
+      startBtn.disabled = true;
+      startBtn.textContent = 'Connecting…';
+      promptText.textContent = 'Requesting microphone access…';
+      try {
+        await ensureMicAccess();
+      } catch (err) {
+        startBtn.disabled = false;
+        startBtn.textContent = 'Start';
+        promptText.textContent = 'Microphone access is required for this mode — ' +
+          (err && err.message ? err.message : 'permission was denied.');
+        return;
+      }
+      startBtn.disabled = false;
+    }
+
     state.playing = true;
     startBtn.textContent = 'Stop';
     startBtn.classList.add('is-playing');
     nextQuestion();
   }
+
   function stopSession() {
     state.playing = false;
     clearTimeout(state.advanceHandle);
     clearTimeout(state.timeoutHandle);
     clearTimeout(state.dangerHandle);
     hideTimerBar();
+    stopMicLoop();
+    teardownMic();
     if (markerEl) markerEl.classList.add('hidden');
     state.current = null;
+    startBtn.disabled = false;
     startBtn.textContent = 'Start';
     startBtn.classList.remove('is-playing');
     promptText.innerHTML = 'Tap <strong>Start</strong> to begin';
     promptText.classList.remove('correct', 'wrong');
+    targetNoteWrap.hidden = true;
+    micPanel.hidden = true;
     syncPadDisabled();
   }
 
@@ -494,6 +833,7 @@
         settings.accidental = r.value;
         saveState();
         renderNotePad();
+        updateNoteLabelsText();
       });
     });
     naturalsOnlyEl.checked = settings.naturalsOnly;
@@ -518,6 +858,14 @@
       saveState();
     });
 
+    showNotesEl.checked = settings.showNotes;
+    applyShowNotes();
+    showNotesEl.addEventListener('change', () => {
+      settings.showNotes = showNotesEl.checked;
+      saveState();
+      applyShowNotes();
+    });
+
     resetStatsBtn.addEventListener('click', () => {
       if (!confirm('Reset your streak and accuracy stats?')) return;
       stats.streak = 0; stats.bestStreak = 0; stats.correct = 0; stats.total = 0;
@@ -534,7 +882,8 @@
   }
 
   /* =======================================================
-     Keyboard shortcuts: c d e f g a b select natural notes,
+     Keyboard shortcuts (identify mode only):
+     c d e f g a b select natural notes,
      Shift+ (c d f g a) selects the sharp above it.
      ======================================================= */
   function wireKeyboard() {
@@ -543,6 +892,7 @@
     document.addEventListener('keydown', (evt) => {
       const tag = evt.target && evt.target.tagName;
       if (tag === 'SELECT' || tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (settings.mode !== 'identify') return;
       if (!state.playing || !state.current) return;
       const lower = evt.key.toLowerCase();
       if (!Object.prototype.hasOwnProperty.call(letterMap, lower)) return;
@@ -598,7 +948,19 @@
     renderNotePad();
     wireSettings();
     wireKeyboard();
+    wireModeSwitch();
     updateLCD();
+
+    if (!micSupported) {
+      const micBtn = modeSwitch.querySelector('[data-mode="mic"]');
+      if (micBtn) {
+        micBtn.disabled = true;
+        micBtn.title = 'Requires microphone support in a secure (https) context.';
+      }
+      micUnsupportedNote.hidden = false;
+      if (settings.mode === 'mic') settings.mode = 'identify'; // don't strand the user on a dead mode
+    }
+    applyModeUI();
 
     // Core interaction wired first — must not depend on the optional
     // enhancements below, so a quirky/older browser can't lose Start.
