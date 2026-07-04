@@ -30,6 +30,16 @@ built-in hint in Find/Play mode.
 on live mic input, no external libraries) to recognize what note
 you're playing, regardless of which string/octave you play it on.
 
+**Electric vs. Acoustic** (Settings → Microphone) tunes detection for
+your setup — how loud a signal counts as "real" (vs. background
+noise), how confident a reading must be before it's accepted, and how
+many consecutive good readings it waits for. Acoustic defaults more
+sensitive/patient since a mic'd acoustic is usually quieter and
+noisier than an amp; electric defaults snappier since that signal is
+typically cleaner. These are reasonable starting points, not a
+guarantee — nudge the constants in `js/app.js` (see Customizing) if
+your setup needs something different.
+
 Notes on how well it works:
 - Needs a browser with microphone support running in a **secure
   context** (`https://` — GitHub Pages qualifies, `localhost` also
@@ -38,13 +48,18 @@ Notes on how well it works:
 - Works best with one note at a time, let it ring for a moment, in a
   reasonably quiet room. Chords, heavy distortion, or a noisy room
   will confuse it.
+- Low strings are inherently harder to read than high ones — fewer
+  full waveform cycles fit in the same analysis window, so a fixed
+  confidence bar would unfairly reject a perfectly good low E. The
+  detector compensates for this automatically (see `clarityThresholdFor`
+  in `js/app.js`), but if a specific note is still consistently
+  missed, try fretting a bit higher up the neck or playing a touch
+  louder/closer to the mic.
 - The browser will prompt for microphone permission the first time
   you press Start in this mode. The mic is released again when you
   press Stop.
 - It's a simple, from-scratch detector — not a professional-grade
-  tuner. If it's misreading you consistently, try playing a bit
-  louder/closer to the mic, or fret higher up the neck where the
-  signal is cleaner.
+  tuner.
 
 ## Run it locally
 
@@ -106,10 +121,14 @@ above — no config changes needed either way.
   top of `css/style.css` (`:root { … }`).
 - **Fret range presets:** edit the `<div id="rangeRadios">` options in
   `index.html`.
-- **Mic sensitivity:** `MIC_CLARITY_THRESHOLD` (how confident a pitch
-  reading must be) and `MIC_STABLE_FRAMES` (how many consecutive good
-  frames before it accepts an answer) are constants near the top of
-  the mic section in `js/app.js`.
+- **Mic sensitivity:** `INSTRUMENT_PRESETS` (near the top of the mic
+  section in `js/app.js`) holds `rmsGate` (how loud a signal must be
+  to count as real), `clarityBias` (nudges the confidence bar up/down
+  from its default per-frequency curve), and `stableFrames` (how many
+  consecutive good readings before it accepts an answer) for each of
+  Electric/Acoustic. `clarityThresholdFor()` right above it is the
+  base confidence curve itself (lower bar for low strings, since they
+  naturally read less "clean" in a fixed-length analysis window).
 
 ## Notes
 
