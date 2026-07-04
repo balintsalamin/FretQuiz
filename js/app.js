@@ -59,6 +59,7 @@
     sound: true,
     mode: 'identify',      // 'identify' | 'locate' | 'mic'
     showNotes: false,
+    instrument: 'electric', // 'electric' | 'acoustic' — tunes mic-mode detection
   });
   const defaultStats = () => ({ streak: 0, bestStreak: 0, correct: 0, total: 0 });
 
@@ -544,8 +545,29 @@
   const micSupported = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) && secureCtx;
 
   let micStream = null, micAudioCtx = null, micAnalyser = null, micDataBuf = null, micRAFId = null;
-  const MIC_CLARITY_THRESHOLD = 0.90;
-  const MIC_STABLE_FRAMES = 10;
+
+  // Electric (pickup/amp, usually a strong clean waveform close to the
+  // mic) vs acoustic (mic'd from further away, quieter, more room noise)
+  // get different sensitivity/patience settings. Tweak freely.
+  const INSTRUMENT_PRESETS = {
+    electric: { rmsGate: 0.012, clarityBias: 0,     stableFrames: 8 },
+    acoustic: { rmsGate: 0.006, clarityBias: -0.04, stableFrames: 13 },
+  };
+  function micParams() {
+    return INSTRUMENT_PRESETS[settings.instrument] || INSTRUMENT_PRESETS.electric;
+  }
+
+  // A fixed confidence bar unfairly rejects low strings: with a
+  // fixed-length analysis window, lower notes pack in fewer full
+  // cycles, so their autocorrelation "clarity" is naturally lower
+  // than a high string's even for a clean, correct reading. This
+  // ramps the bar down for low frequencies to compensate.
+  function clarityThresholdFor(freq, bias) {
+    const lo = 82, hi = 400; // ~low E .. comfortably above the open strings
+    const t = Math.max(0, Math.min(1, (freq - lo) / (hi - lo)));
+    const base = 0.80 + t * 0.12; // ~0.80 near low E, ~0.92 by ~400Hz+
+    return Math.max(0.6, base + (bias || 0));
+  }
 
   async function ensureMicAccess() {
     if (micAnalyser) return;
@@ -556,7 +578,9 @@
     micAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const src = micAudioCtx.createMediaStreamSource(micStream);
     micAnalyser = micAudioCtx.createAnalyser();
-    micAnalyser.fftSize = 2048;
+    // Wide enough window to comfortably fit several cycles of a low E
+    // (~82Hz) so its pitch reads as cleanly as the high strings do.
+    micAnalyser.fftSize = 4096;
     micDataBuf = new Float32Array(micAnalyser.fftSize);
     src.connect(micAnalyser);
   }
@@ -568,35 +592,45 @@
     micDataBuf = null;
   }
 
-  // Autocorrelation pitch detector (ACF-style): trims near-silence,
-  // finds the lag of strongest self-similarity beyond the first
-  // downward slope, then refines it with parabolic interpolation.
-  function autoCorrelate(buf, sampleRate) {
-    let rms = 0;
-    for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
-    rms = Math.sqrt(rms / buf.length);
-    if (rms < 0.01) return { frequency: -1, clarity: 0, rms };
+  // One-pole DC blocker (y[n] = x[n] - x[n-1] + R*y[n-1]). Strips DC
+  // bias and sub-audio rumble picked up by the raw mic (we run with
+  // noiseSuppression off) without touching guitar-range frequencies —
+  // that noise otherwise concentrates right where low strings live.
+  function dcBlock(buf) {
+    const out = new Float32Array(buf.length);
+    let x1 = 0, y1 = 0;
+    const R = 0.995;
+    for (let i = 0; i < buf.length; i++) {
+      const x0 = buf[i];
+      const y0 = x0 - x1 + R * y1;
+      out[i] = y0;
+      x1 = x0; y1 = y0;
+    }
+    return out;
+  }
 
-    let start = 0, end = buf.length - 1;
-    const thresh = rms * 0.5;
-    while (start < buf.length && Math.abs(buf[start]) < thresh) start++;
-    while (end > 0 && Math.abs(buf[end]) < thresh) end--;
-    if (end - start < 512) return { frequency: -1, clarity: 0, rms };
-    const trimmed = buf.slice(start, end + 1);
-    const size = trimmed.length;
+  // Autocorrelation pitch detector (ACF-style): finds the lag of
+  // strongest self-similarity beyond the first downward slope (so it
+  // doesn't latch onto a strong-but-wrong harmonic at a shorter lag),
+  // then refines it with parabolic interpolation for sub-sample accuracy.
+  function autoCorrelate(rawBuf, sampleRate) {
+    const buf = dcBlock(rawBuf);
+    const size = buf.length;
 
-    let energy = 0;
-    for (let i = 0; i < size; i++) energy += trimmed[i] * trimmed[i];
+    let sumSquares = 0;
+    for (let i = 0; i < size; i++) sumSquares += buf[i] * buf[i];
+    const rms = Math.sqrt(sumSquares / size);
+    const energy = sumSquares;
     if (energy <= 0) return { frequency: -1, clarity: 0, rms };
 
-    const minLag = Math.max(2, Math.floor(sampleRate / 1000));  // ignore >1000Hz
+    const minLag = Math.max(2, Math.floor(sampleRate / 1000));   // ignore >1000Hz
     const maxLag = Math.min(size - 1, Math.floor(sampleRate / 70)); // ignore <70Hz
     if (maxLag <= minLag) return { frequency: -1, clarity: 0, rms };
 
     const corr = new Float32Array(maxLag + 1);
     for (let lag = minLag; lag <= maxLag; lag++) {
       let sum = 0;
-      for (let i = 0; i < size - lag; i++) sum += trimmed[i] * trimmed[i + lag];
+      for (let i = 0; i < size - lag; i++) sum += buf[i] * buf[i + lag];
       corr[lag] = sum;
     }
 
@@ -643,9 +677,10 @@
         return;
       }
       micAnalyser.getFloatTimeDomainData(micDataBuf);
-      const { frequency, clarity } = autoCorrelate(micDataBuf, micAudioCtx.sampleRate);
+      const { frequency, clarity, rms } = autoCorrelate(micDataBuf, micAudioCtx.sampleRate);
+      const params = micParams();
 
-      if (frequency > 0 && clarity > MIC_CLARITY_THRESHOLD) {
+      if (frequency > 0 && rms >= params.rmsGate && clarity > clarityThresholdFor(frequency, params.clarityBias)) {
         const midi = 69 + 12 * Math.log2(frequency / 440);
         const rounded = Math.round(midi);
         const heardIndex = ((rounded % 12) + 12) % 12;
@@ -658,7 +693,7 @@
         if (state.micStreak.note === heardIndex) state.micStreak.count++;
         else state.micStreak = { note: heardIndex, count: 1 };
 
-        if (state.micStreak.count >= MIC_STABLE_FRAMES) {
+        if (state.micStreak.count >= params.stableFrames) {
           micRAFId = null;
           micOrb.classList.remove('hot');
           handleAnswer(heardIndex, {}, false);
@@ -815,6 +850,9 @@
   function syncAccidentalRadio() {
     document.querySelectorAll('#accidentalRadios input').forEach(r => { r.checked = (r.value === settings.accidental); });
   }
+  function syncInstrumentRadio() {
+    document.querySelectorAll('#instrumentRadios input').forEach(r => { r.checked = (r.value === settings.instrument); });
+  }
 
   function wireSettings() {
     document.querySelectorAll('#rangeRadios input').forEach(r => {
@@ -834,6 +872,13 @@
         saveState();
         renderNotePad();
         updateNoteLabelsText();
+      });
+    });
+    document.querySelectorAll('#instrumentRadios input').forEach(r => {
+      r.addEventListener('change', () => {
+        if (!r.checked) return;
+        settings.instrument = r.value;
+        saveState();
       });
     });
     naturalsOnlyEl.checked = settings.naturalsOnly;
@@ -945,6 +990,7 @@
     renderStringToggles();
     syncRangeRadio();
     syncAccidentalRadio();
+    syncInstrumentRadio();
     renderNotePad();
     wireSettings();
     wireKeyboard();
