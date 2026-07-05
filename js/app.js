@@ -8,6 +8,16 @@
   const NOTE_FLAT  = ['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
   const NATURAL_SET = new Set([0,2,4,5,7,9,11]);
 
+  // Scale definitions: semitone offsets from the root, plus the
+  // degree label shown on the fretboard/quiz pad for each offset.
+  const SCALES = {
+    major:   { name: 'Major',            intervals: [0,2,4,5,7,9,11], degrees: ['1','2','3','4','5','6','7'] },
+    minor:   { name: 'Natural Minor',    intervals: [0,2,3,5,7,8,10], degrees: ['1','2','♭3','4','5','♭6','♭7'] },
+    majPent: { name: 'Major Pentatonic', intervals: [0,2,4,7,9],      degrees: ['1','2','3','5','6'] },
+    minPent: { name: 'Minor Pentatonic', intervals: [0,3,5,7,10],     degrees: ['1','♭3','4','5','♭7'] },
+    blues:   { name: 'Blues',            intervals: [0,3,5,6,7,10],   degrees: ['1','♭3','4','♭5','5','♭7'] },
+  };
+
   // Rendered top-to-bottom, the way a player looks down at the neck.
   const STRINGS = [
     { stringNum:1, label:'E', openIndex:4,  kind:'plain', thickness:1.6 },
@@ -57,9 +67,14 @@
     timerEnabled: false,
     timerSeconds: 8,
     sound: true,
-    mode: 'identify',      // 'identify' | 'locate' | 'mic'
+    mode: 'identify',      // 'identify' | 'locate' | 'mic' | 'scales'
     showNotes: false,
     instrument: 'electric', // 'electric' | 'acoustic' — tunes mic-mode detection
+    scaleRoot: 0,          // pitch class 0-11
+    scaleType: 'major',    // key into SCALES
+    scalePosition: 0,      // index into computed positions
+    scaleFullNeck: false,  // show the whole board instead of one position
+    scaleSubMode: 'explore', // 'explore' | 'quiz'
   });
   const defaultStats = () => ({ streak: 0, bestStreak: 0, correct: 0, total: 0 });
 
@@ -126,9 +141,19 @@
   const micOrb = document.getElementById('micOrb');
   const micHeardNote = document.getElementById('micHeardNote');
   const micCentsNeedle = document.getElementById('micCentsNeedle');
+  const degreePad = document.getElementById('degreePad');
+  const scaleControls = document.getElementById('scaleControls');
+  const scaleRootSelect = document.getElementById('scaleRootSelect');
+  const scaleTypeSelect = document.getElementById('scaleTypeSelect');
+  const scalePosPrev = document.getElementById('scalePosPrev');
+  const scalePosNext = document.getElementById('scalePosNext');
+  const scalePositionLabel = document.getElementById('scalePositionLabel');
+  const scaleFullNeckEl = document.getElementById('scaleFullNeck');
+  const scaleSubModeSwitch = document.getElementById('scaleSubModeSwitch');
 
-  let markerEl, dimLeft, dimRight, hitGroupEl, noteLabelsGroupEl;
+  let markerEl, dimLeft, dimRight, hitGroupEl, noteLabelsGroupEl, scaleOverlayGroupEl;
   const noteLabelEls = []; // [{ el, noteIndex }] for relabeling on accidental change
+  const scaleOverlayEls = []; // [si][fret] = { dot, label } for fast visibility/color updates
 
   /* =======================================================
      Build the fretboard SVG
@@ -217,6 +242,24 @@
     });
     boardSvg.appendChild(noteLabelsGroupEl);
 
+    // scale-degree overlay (Scales mode): dots + degree labels, filtered
+    // to the active scale/position at update time
+    scaleOverlayGroupEl = el('g', { id: 'scaleOverlayGroup', class: 'fb-scale-overlay' });
+    STRINGS.forEach((s, si) => {
+      const strGroup = el('g', { class: 'fb-scale-string', 'data-string-index': si });
+      scaleOverlayEls[si] = [];
+      for (let fret = 0; fret <= FRETS; fret++) {
+        const cx = fret === 0 ? OPEN_X : fretCellX(fret);
+        const dot = el('circle', { class: 'fb-scale-dot hidden', cx, cy: s.y, r: 12 });
+        const label = el('text', { class: 'fb-scale-label hidden', x: cx, y: s.y });
+        strGroup.appendChild(dot);
+        strGroup.appendChild(label);
+        scaleOverlayEls[si][fret] = { dot, label };
+      }
+      scaleOverlayGroupEl.appendChild(strGroup);
+    });
+    boardSvg.appendChild(scaleOverlayGroupEl);
+
     // dim overlays for excluded fret range
     dimLeft = el('rect', { id: 'dimLeftZone', class: 'fb-zone-dim', x: 0, y: NECK_TOP, width: 0, height: NECK_BOTTOM - NECK_TOP });
     dimRight = el('rect', { id: 'dimRightZone', class: 'fb-zone-dim', x: BOARD_RIGHT, y: NECK_TOP, width: 0, height: NECK_BOTTOM - NECK_TOP });
@@ -248,9 +291,16 @@
   }
 
   function updateRangeVisual() {
-    const leftX = settings.rangeMin > 0 ? fretLineX(settings.rangeMin) : 0;
+    let minFret = settings.rangeMin, maxFret = settings.rangeMax;
+    if (settings.mode === 'scales' && !settings.scaleFullNeck) {
+      const positions = computeScalePositions();
+      const posIdx = Math.min(settings.scalePosition, positions.length - 1);
+      const pos = positions[posIdx];
+      if (pos) { minFret = pos.start; maxFret = pos.end; }
+    }
+    const leftX = minFret > 0 ? fretLineX(minFret) : 0;
     dimLeft.setAttribute('width', leftX);
-    const rightX = fretLineX(settings.rangeMax);
+    const rightX = fretLineX(maxFret);
     dimRight.setAttribute('x', rightX);
     dimRight.setAttribute('width', Math.max(0, BOARD_RIGHT - rightX));
   }
@@ -271,7 +321,9 @@
   }
 
   function applyShowNotes() {
-    if (noteLabelsGroupEl) noteLabelsGroupEl.classList.toggle('visible', settings.showNotes);
+    if (noteLabelsGroupEl) {
+      noteLabelsGroupEl.classList.toggle('visible', settings.showNotes && settings.mode !== 'scales');
+    }
   }
 
   function updateNoteLabelsText() {
@@ -307,17 +359,153 @@
     Array.from(notePad.children).forEach(b => { b.disabled = !enabled; });
   }
 
+  function renderDegreePad() {
+    const scale = currentScale();
+    degreePad.innerHTML = '';
+    scale.degrees.forEach((label, idx) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'note-btn';
+      btn.dataset.degreeIndex = idx;
+      btn.textContent = label;
+      btn.addEventListener('click', () => handleAnswer(idx, { btnEl: btn }, false));
+      degreePad.appendChild(btn);
+    });
+    syncDegreePadDisabled();
+  }
+  function syncDegreePadDisabled() {
+    const enabled = state.playing && !!state.current && settings.mode === 'scales' && settings.scaleSubMode === 'quiz';
+    Array.from(degreePad.children).forEach(b => { b.disabled = !enabled; });
+  }
+
   /* =======================================================
-     Mode switching (Name it / Find it / Play it)
+     Scales: data lookups, the 5-position system, and the
+     fretboard overlay that visualizes them
+     ======================================================= */
+  function currentScale() {
+    return SCALES[settings.scaleType] || SCALES.major;
+  }
+
+  // Which degree (index into scale.degrees) a pitch class belongs to,
+  // or -1 if it's not in the current root/scale at all.
+  function degreeOfNote(noteIndex) {
+    const scale = currentScale();
+    for (let i = 0; i < scale.intervals.length; i++) {
+      if ((settings.scaleRoot + scale.intervals[i]) % 12 === noteIndex) return i;
+    }
+    return -1;
+  }
+
+  // Derives CAGED-style position windows algorithmically: find every
+  // fret where the root note falls on each string, dedupe (standard
+  // tuning's two E strings share a value, which is exactly why there
+  // are 5 shapes, not 6), sort, and give each a ~4-fret span. Works
+  // for any root/scale without hand-authored shape tables.
+  function computeScalePositions() {
+    const rootFrets = new Set();
+    STRINGS.forEach(s => {
+      rootFrets.add((settings.scaleRoot - s.openIndex + 12) % 12);
+    });
+    const anchors = Array.from(rootFrets).sort((a, b) => a - b);
+    return anchors.map(a => ({ start: a, end: Math.min(FRETS, a + 3) }));
+  }
+
+  function getEligibleScalePairs() {
+    const positions = computeScalePositions();
+    const posIdx = Math.min(settings.scalePosition, Math.max(0, positions.length - 1));
+    const activePos = positions[posIdx] || { start: 0, end: FRETS };
+    const minFret = settings.scaleFullNeck ? 0 : activePos.start;
+    const maxFret = settings.scaleFullNeck ? FRETS : activePos.end;
+    const pairs = [];
+    for (let si = 0; si < STRINGS.length; si++) {
+      if (!settings.strings[si]) continue;
+      for (let fret = minFret; fret <= maxFret; fret++) {
+        const noteIndex = (STRINGS[si].openIndex + fret) % 12;
+        const degreeIndex = degreeOfNote(noteIndex);
+        if (degreeIndex === -1) continue;
+        pairs.push({ stringIndex: si, fret, noteIndex, degreeIndex });
+      }
+    }
+    return pairs;
+  }
+
+  // Repaints every dot/label in the scale overlay to match the
+  // current root/scale/position, and refreshes the position-stepper
+  // label and button states.
+  function updateScaleOverlay() {
+    if (!scaleOverlayGroupEl) return;
+    const scale = currentScale();
+    const positions = computeScalePositions();
+    const posIdx = Math.min(settings.scalePosition, Math.max(0, positions.length - 1));
+    const activePos = positions[posIdx] || { start: 0, end: FRETS };
+
+    STRINGS.forEach((s, si) => {
+      for (let fret = 0; fret <= FRETS; fret++) {
+        const noteIndex = (s.openIndex + fret) % 12;
+        const degreeIndex = degreeOfNote(noteIndex);
+        const inScale = degreeIndex !== -1;
+        const inWindow = settings.scaleFullNeck || (fret >= activePos.start && fret <= activePos.end);
+        const visible = inScale && inWindow;
+        const { dot, label } = scaleOverlayEls[si][fret];
+        dot.classList.toggle('hidden', !visible);
+        label.classList.toggle('hidden', !visible);
+        dot.classList.toggle('root', visible && degreeIndex === 0);
+        if (visible) label.textContent = scale.degrees[degreeIndex];
+      }
+    });
+
+    if (scalePositionLabel) {
+      scalePositionLabel.textContent = settings.scaleFullNeck
+        ? 'Full neck'
+        : `Position ${posIdx + 1} of ${positions.length}`;
+    }
+    if (scalePosPrev) scalePosPrev.disabled = settings.scaleFullNeck || posIdx <= 0;
+    if (scalePosNext) scalePosNext.disabled = settings.scaleFullNeck || posIdx >= positions.length - 1;
+  }
+
+  /* =======================================================
+     Mode switching (Name it / Find it / Play it / Scales)
      ======================================================= */
   function applyModeUI() {
     Array.from(modeSwitch.querySelectorAll('.mode-btn')).forEach(b => {
       b.setAttribute('aria-pressed', String(b.dataset.mode === settings.mode));
     });
-    notePad.style.display = settings.mode === 'identify' ? '' : 'none';
-    if (hitGroupEl) hitGroupEl.classList.toggle('active', settings.mode === 'locate');
-    if (settings.mode !== 'mic') micPanel.hidden = true;
-    if (settings.mode === 'identify') targetNoteWrap.hidden = true;
+
+    const mode = settings.mode;
+    const isScales = mode === 'scales';
+    const isExplore = isScales && settings.scaleSubMode === 'explore';
+
+    notePad.style.display = mode === 'identify' ? '' : 'none';
+    degreePad.style.display = (isScales && !isExplore) ? '' : 'none';
+    startBtn.style.display = isExplore ? 'none' : '';
+    scaleControls.hidden = !isScales;
+
+    if (hitGroupEl) hitGroupEl.classList.toggle('active', mode === 'locate');
+    if (mode !== 'mic') micPanel.hidden = true;
+    targetNoteWrap.hidden = !(mode === 'locate' || mode === 'mic');
+
+    if (isScales) {
+      Array.from(scaleSubModeSwitch.querySelectorAll('.mode-btn')).forEach(b => {
+        b.setAttribute('aria-pressed', String(b.dataset.submode === settings.scaleSubMode));
+      });
+      if (scaleOverlayGroupEl) {
+        scaleOverlayGroupEl.classList.add('visible');
+        scaleOverlayGroupEl.classList.toggle('quiz-mode', !isExplore);
+      }
+      if (isExplore) {
+        markerEl.classList.add('hidden');
+        promptText.innerHTML = 'Explore the scale above — change root, scale, or position any time.';
+        promptText.classList.remove('correct', 'wrong');
+      } else {
+        promptText.innerHTML = 'Tap <strong>Start</strong> to begin';
+      }
+    } else if (scaleOverlayGroupEl) {
+      scaleOverlayGroupEl.classList.remove('visible');
+    }
+
+    applyShowNotes();
+    updateRangeVisual();
+    if (isScales) updateScaleOverlay();
   }
 
   function wireModeSwitch() {
@@ -329,6 +517,68 @@
         saveState();
         applyModeUI();
       });
+    });
+
+    Array.from(scaleSubModeSwitch.querySelectorAll('.mode-btn')).forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.submode === settings.scaleSubMode) return;
+        if (state.playing) stopSession();
+        settings.scaleSubMode = btn.dataset.submode;
+        saveState();
+        applyModeUI();
+      });
+    });
+  }
+
+  function renderScaleRootOptions() {
+    scaleRootSelect.innerHTML = '';
+    for (let i = 0; i < 12; i++) {
+      const opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = noteLabel(i);
+      scaleRootSelect.appendChild(opt);
+    }
+    scaleRootSelect.value = String(settings.scaleRoot);
+  }
+
+  function refreshScaleView() {
+    updateRangeVisual();
+    updateScaleOverlay();
+    if (state.playing && settings.mode === 'scales') nextQuestion();
+  }
+
+  function wireScaleControls() {
+    renderScaleRootOptions();
+    scaleTypeSelect.value = settings.scaleType;
+    scaleFullNeckEl.checked = settings.scaleFullNeck;
+
+    scaleRootSelect.addEventListener('change', () => {
+      settings.scaleRoot = Number(scaleRootSelect.value);
+      saveState();
+      refreshScaleView();
+    });
+    scaleTypeSelect.addEventListener('change', () => {
+      settings.scaleType = scaleTypeSelect.value;
+      settings.scalePosition = 0;
+      saveState();
+      renderDegreePad();
+      refreshScaleView();
+    });
+    scalePosPrev.addEventListener('click', () => {
+      settings.scalePosition = Math.max(0, settings.scalePosition - 1);
+      saveState();
+      refreshScaleView();
+    });
+    scalePosNext.addEventListener('click', () => {
+      const positions = computeScalePositions();
+      settings.scalePosition = Math.min(positions.length - 1, settings.scalePosition + 1);
+      saveState();
+      refreshScaleView();
+    });
+    scaleFullNeckEl.addEventListener('change', () => {
+      settings.scaleFullNeck = scaleFullNeckEl.checked;
+      saveState();
+      refreshScaleView();
     });
   }
 
@@ -373,6 +623,20 @@
       state.lastPick = { noteIndex };
       state.current = { noteIndex, stringIndex: null, fret: null };
       state.micStreak = { note: null, count: 0 };
+    } else if (mode === 'scales') {
+      const pairs = getEligibleScalePairs();
+      if (pairs.length === 0) {
+        promptText.textContent = 'No scale tones in this position — try Full neck or a different position.';
+        stopSession();
+        return;
+      }
+      let pick;
+      do {
+        pick = pairs[Math.floor(Math.random() * pairs.length)];
+      } while (pairs.length > 1 && state.lastPick &&
+               pick.stringIndex === state.lastPick.stringIndex && pick.fret === state.lastPick.fret);
+      state.lastPick = pick;
+      state.current = pick; // { stringIndex, fret, noteIndex, degreeIndex }
     } else {
       const pairs = getEligiblePairs();
       if (pairs.length === 0) {
@@ -406,6 +670,11 @@
       targetNoteLabel.textContent = 'find';
       targetNoteEl.textContent = noteLabel(state.current.noteIndex);
       promptText.textContent = 'Tap the matching note on the fretboard';
+    } else if (mode === 'scales') {
+      positionMarker(state.current.stringIndex, state.current.fret);
+      markerEl.classList.remove('hidden', 'correct', 'wrong');
+      Array.from(degreePad.children).forEach(b => { b.disabled = false; b.classList.remove('is-correct', 'is-wrong'); });
+      promptText.textContent = 'What scale degree is this?';
     } else { // mic
       markerEl.classList.add('hidden');
       markerEl.classList.remove('correct', 'wrong');
@@ -434,7 +703,8 @@
 
     meta = meta || {};
     const mode = settings.mode;
-    const correctIndex = state.current.noteIndex;
+    const scale = currentScale();
+    const correctIndex = (mode === 'scales') ? state.current.degreeIndex : state.current.noteIndex;
     const isCorrect = !isTimeout && selectedIndex === correctIndex;
     let pluckStringIndex = null;
 
@@ -454,6 +724,14 @@
       markerEl.classList.toggle('correct', isCorrect);
       markerEl.classList.toggle('wrong', !isCorrect);
       pluckStringIndex = posStringIndex;
+    } else if (mode === 'scales') {
+      Array.from(degreePad.children).forEach(b => { b.disabled = true; });
+      const correctBtn = degreePad.querySelector(`[data-degree-index="${correctIndex}"]`);
+      if (correctBtn) correctBtn.classList.add('is-correct');
+      if (!isCorrect && meta.btnEl) meta.btnEl.classList.add('is-wrong');
+      markerEl.classList.toggle('correct', isCorrect);
+      markerEl.classList.toggle('wrong', !isCorrect);
+      pluckStringIndex = state.current.stringIndex;
     } else { // mic
       stopMicLoop();
     }
@@ -480,13 +758,17 @@
     saveState();
     updateLCD();
 
-    const targetLabel = noteLabel(correctIndex);
+    const targetLabel = (mode === 'scales') ? scale.degrees[correctIndex] : noteLabel(correctIndex);
     promptText.classList.remove('correct', 'wrong');
     if (isCorrect) {
-      promptText.innerHTML = `Nice — that's <strong>${targetLabel}</strong>`;
+      promptText.innerHTML = mode === 'scales'
+        ? `Nice — that's the <strong>${targetLabel}</strong>`
+        : `Nice — that's <strong>${targetLabel}</strong>`;
       promptText.classList.add('correct');
     } else if (isTimeout) {
-      promptText.innerHTML = `Too slow — it was <strong>${targetLabel}</strong>`;
+      promptText.innerHTML = mode === 'scales'
+        ? `Too slow — that's the <strong>${targetLabel}</strong>`
+        : `Too slow — it was <strong>${targetLabel}</strong>`;
       promptText.classList.add('wrong');
     } else if (mode === 'identify') {
       promptText.innerHTML = `Not quite — it was <strong>${targetLabel}</strong>`;
@@ -494,6 +776,10 @@
     } else if (mode === 'locate') {
       const clickedLabel = noteLabel(selectedIndex);
       promptText.innerHTML = `That's <strong>${clickedLabel}</strong> — looking for <strong>${targetLabel}</strong>`;
+      promptText.classList.add('wrong');
+    } else if (mode === 'scales') {
+      const clickedLabel = scale.degrees[selectedIndex];
+      promptText.innerHTML = `That's the <strong>${clickedLabel}</strong> — this one is the <strong>${targetLabel}</strong>`;
       promptText.classList.add('wrong');
     } else { // mic
       const heardLabel = noteLabel(selectedIndex);
@@ -762,6 +1048,7 @@
     targetNoteWrap.hidden = true;
     micPanel.hidden = true;
     syncPadDisabled();
+    syncDegreePadDisabled();
   }
 
   function updateLCD() {
@@ -872,6 +1159,7 @@
         saveState();
         renderNotePad();
         updateNoteLabelsText();
+        renderScaleRootOptions();
       });
     });
     document.querySelectorAll('#instrumentRadios input').forEach(r => {
@@ -992,6 +1280,8 @@
     syncAccidentalRadio();
     syncInstrumentRadio();
     renderNotePad();
+    renderDegreePad();
+    wireScaleControls();
     wireSettings();
     wireKeyboard();
     wireModeSwitch();
