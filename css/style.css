@@ -26,6 +26,7 @@
   --red-hi:      #ea7167;
   --lcd-bg:      #1b140f;
   --lcd-glow:    #f7c869;
+  --scale-tone:  #8fb5a3;
 
   --radius-lg: 22px;
   --radius-md: 14px;
@@ -207,6 +208,73 @@ body{
 }
 
 /* =========================================================
+   Scale controls (Scales mode)
+   ========================================================= */
+.scale-controls{
+  background: linear-gradient(180deg, #201610, #170f0a);
+  border:1px solid rgba(156,148,136,0.16);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+.scale-row{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  flex-wrap:wrap;
+  justify-content: space-between;
+}
+.scale-field{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:12px;
+  color: var(--ink-dim);
+}
+.scale-field select{
+  font-family: var(--font-mono);
+  background: var(--lcd-bg);
+  color: var(--lcd-glow);
+  border:1px solid rgba(247,200,105,0.3);
+  border-radius:6px;
+  padding:6px 10px;
+  font-size:13px;
+}
+.position-stepper{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.step-btn{
+  width:30px; height:30px;
+  border-radius:50%;
+  border:1px solid rgba(156,148,136,0.3);
+  background: linear-gradient(180deg, #2c1d13, #1b120c);
+  color: var(--brass-hi);
+  font-size:16px;
+  line-height:1;
+  cursor:pointer;
+  padding:0;
+}
+.step-btn:disabled{ opacity:0.3; cursor:not-allowed; }
+.position-label{
+  font-family: var(--font-mono);
+  font-size:12px;
+  color: var(--ink-dim);
+  min-width: 104px;
+  text-align:center;
+}
+.switch-row.compact{ padding:0; gap:8px; }
+.switch-row.compact input[type="checkbox"]{ width:32px; height:18px; }
+.switch-row.compact input[type="checkbox"]::after{ width:12px; height:12px; }
+.switch-row.compact input[type="checkbox"]:checked::after{ transform: translateX(14px); }
+
+.mode-switch.small{ padding:3px; }
+.mode-switch.small .mode-btn{ font-size:11px; padding:7px 8px; }
+
+/* =========================================================
    Board card
    ========================================================= */
 .board-card{
@@ -380,6 +448,28 @@ body{
   text-anchor:middle;
   dominant-baseline:middle;
 }
+
+.fb-scale-overlay{ opacity:0; pointer-events:none; transition: opacity 200ms ease; }
+.fb-scale-overlay.visible{ opacity:1; }
+.fb-scale-dot{
+  fill: var(--scale-tone);
+  stroke: rgba(0,0,0,0.35);
+  stroke-width:1;
+  transition: opacity 150ms ease;
+}
+.fb-scale-dot.root{ fill: var(--brass-glow); }
+.fb-scale-dot.hidden{ opacity:0; }
+.fb-scale-label{
+  font-family: var(--font-mono);
+  font-size:10px;
+  font-weight:800;
+  fill: var(--void);
+  text-anchor:middle;
+  dominant-baseline:middle;
+  transition: opacity 150ms ease;
+}
+.fb-scale-label.hidden{ opacity:0; }
+.fb-scale-overlay.quiz-mode .fb-scale-label{ opacity:0 !important; }
 
 .fb-hitgroup{ pointer-events:none; }
 .fb-hitgroup.active{ pointer-events:all; }
