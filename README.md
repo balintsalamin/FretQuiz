@@ -19,10 +19,26 @@ No build step, no dependencies. Plain HTML/CSS/JS.
   Your browser's microphone listens and detects the pitch — no
   clicking required. See **Microphone mode** below for details and
   limitations.
+- **Scales** — pick a root note and a scale (Major, Natural Minor,
+  Major Pentatonic, Minor Pentatonic, Blues), then either:
+  - **Explore** — every note of that scale lights up across the whole
+    fretboard, color-coded by degree (root in one color, everything
+    else in another), with degree numbers labeled right on the board.
+  - **Quiz Me** — the labels disappear (the dots stay, so the shape is
+    still visible) and you're tested on naming the scale degree of a
+    highlighted note, same streak/accuracy tracking as the other modes.
+
+  A **position stepper** steps through the scale's ~5 "boxes" across
+  the neck (the same idea behind the CAGED system), or check **Full
+  neck** to see the whole thing at once. The positions aren't from a
+  hand-typed shape table — they're derived algorithmically from where
+  the root note falls on each string, so they work correctly for any
+  root and any of the scale types above without extra data.
 
 **Show note names** (in Settings → Display) overlays every fret with
 its note name — handy as training wheels while learning, or as a
-built-in hint in Find/Play mode.
+built-in hint in Find/Play mode. (It's automatically hidden in Scales
+mode, since the scale overlay already covers that same visual space.)
 
 ## Microphone mode
 
@@ -117,6 +133,11 @@ above — no config changes needed either way.
 - **Tuning:** the `STRINGS` array at the top of `js/app.js` hard-codes
   standard tuning (E A D G B E). Change the `openIndex` values there
   (0=C, 1=C#, 2=D, … 11=B) for drop-D, alternate tunings, etc.
+- **Scales:** the `SCALES` object near the top of `js/app.js` holds
+  each scale as semitone offsets from the root plus its degree labels
+  — add a Dorian or Mixolydian entry, for instance, the same shape as
+  the existing ones, and it'll show up in the Scale dropdown and work
+  with the position stepper automatically.
 - **Colors/fonts:** all design tokens are CSS custom properties at the
   top of `css/style.css` (`:root { … }`).
 - **Fret range presets:** edit the `<div id="rangeRadios">` options in
