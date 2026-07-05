@@ -59,11 +59,47 @@
     <button type="button" class="mode-btn" data-mode="identify" aria-pressed="true">Name the Note</button>
     <button type="button" class="mode-btn" data-mode="locate" aria-pressed="false">Find the Note</button>
     <button type="button" class="mode-btn" data-mode="mic" aria-pressed="false">Play the Note</button>
+    <button type="button" class="mode-btn" data-mode="scales" aria-pressed="false">Scales</button>
   </div>
   <p class="mic-support-note" id="micUnsupportedNote" hidden>
     "Play the Note" needs microphone support in a secure (https) context — it's unavailable on this
     browser/connection, so that mode is disabled here.
   </p>
+
+  <!-- ===== Scale controls (Scales mode only) ===== -->
+  <div class="scale-controls" id="scaleControls" hidden>
+    <div class="scale-row">
+      <label class="scale-field">
+        <span>Root</span>
+        <select id="scaleRootSelect"></select>
+      </label>
+      <label class="scale-field">
+        <span>Scale</span>
+        <select id="scaleTypeSelect">
+          <option value="major">Major</option>
+          <option value="minor">Natural Minor</option>
+          <option value="majPent">Major Pentatonic</option>
+          <option value="minPent">Minor Pentatonic</option>
+          <option value="blues">Blues</option>
+        </select>
+      </label>
+    </div>
+    <div class="scale-row">
+      <div class="position-stepper">
+        <button type="button" class="step-btn" id="scalePosPrev" aria-label="Previous position">‹</button>
+        <span class="position-label" id="scalePositionLabel">Position 1 of 5</span>
+        <button type="button" class="step-btn" id="scalePosNext" aria-label="Next position">›</button>
+      </div>
+      <label class="switch-row compact">
+        <span>Full neck</span>
+        <input type="checkbox" id="scaleFullNeck">
+      </label>
+    </div>
+    <div class="mode-switch small" id="scaleSubModeSwitch" role="group" aria-label="Explore or quiz">
+      <button type="button" class="mode-btn" data-submode="explore" aria-pressed="true">Explore</button>
+      <button type="button" class="mode-btn" data-submode="quiz" aria-pressed="false">Quiz Me</button>
+    </div>
+  </div>
 
   <!-- ===== Fretboard stage ===== -->
   <main class="board-card">
@@ -103,6 +139,7 @@
   <!-- ===== Answer pad ===== -->
   <section class="pad-wrap">
     <div class="note-pad" id="notePad" aria-label="Note answers"></div>
+    <div class="note-pad" id="degreePad" aria-label="Scale degree answers" style="display:none;"></div>
     <button class="start-btn" id="startBtn" type="button">Start</button>
   </section>
 
