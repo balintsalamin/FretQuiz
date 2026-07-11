@@ -60,11 +60,22 @@
     <button type="button" class="mode-btn" data-mode="locate" aria-pressed="false">Find the Note</button>
     <button type="button" class="mode-btn" data-mode="mic" aria-pressed="false">Play the Note</button>
     <button type="button" class="mode-btn" data-mode="scales" aria-pressed="false">Scales</button>
+    <button type="button" class="mode-btn" data-mode="progression" aria-pressed="false">Progression</button>
   </div>
   <p class="mic-support-note" id="micUnsupportedNote" hidden>
     "Play the Note" needs microphone support in a secure (https) context — it's unavailable on this
     browser/connection, so that mode is disabled here.
   </p>
+
+  <!-- ===== Progression controls (Progression mode only) ===== -->
+  <div class="progression-controls" id="progressionControls" hidden>
+    <div class="prog-input-row">
+      <input type="text" id="progressionInput" class="prog-input" value="C G Am F"
+             placeholder="e.g. C G Am F" aria-label="Chord progression" />
+      <button type="button" class="ghost-btn accent" id="progressionGenerate">Generate</button>
+    </div>
+    <div class="prog-chip-row" id="progressionChips"></div>
+  </div>
 
   <!-- ===== Scale controls (Scales mode only) ===== -->
   <div class="scale-controls" id="scaleControls" hidden>
@@ -135,6 +146,16 @@
       </div>
     </div>
   </main>
+
+  <!-- ===== Chord detail (Progression mode only) ===== -->
+  <section class="chord-detail" id="chordDetail" hidden>
+    <div class="chord-detail-head">
+      <span class="chord-detail-name" id="chordDetailName">C Major</span>
+      <div class="prog-chip-row prog-chip-row-sub" id="chordSubRow"></div>
+    </div>
+    <p class="chord-detail-error" id="chordDetailError" hidden></p>
+    <div class="chord-voicings" id="chordVoicings"></div>
+  </section>
 
   <!-- ===== Answer pad ===== -->
   <section class="pad-wrap">
