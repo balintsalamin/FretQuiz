@@ -142,6 +142,9 @@
     scaleFullNeck: false,  // show the whole board instead of one position
     scaleSubMode: 'explore', // 'explore' | 'quiz'
     progressionText: 'C G Am F',
+    songSubMode: 'suggest', // 'suggest' | 'keyfinder'
+    songKeyRoot: 0,
+    songKeyIsMinor: false,
   });
   const defaultStats = () => ({ streak: 0, bestStreak: 0, correct: 0, total: 0 });
 
@@ -181,6 +184,9 @@
       viewQuality: null, // substitution override for the active chord, or null
       voicings: [],
       activeVoicingIndex: 0,
+    },
+    songwriting: {
+      lastSuggestion: null,
     },
   };
 
@@ -233,6 +239,24 @@
   const chordDetailError = document.getElementById('chordDetailError');
   const chordSubRow = document.getElementById('chordSubRow');
   const chordVoicings = document.getElementById('chordVoicings');
+  const boardCardEl = document.querySelector('.board-card');
+  const songwritingControls = document.getElementById('songwritingControls');
+  const songSubModeSwitch = document.getElementById('songSubModeSwitch');
+  const suggestPanelEl = document.getElementById('suggestPanel');
+  const keyfinderPanelEl = document.getElementById('keyfinderPanel');
+  const songKeyRootSelect = document.getElementById('songKeyRootSelect');
+  const songKeyModeSelect = document.getElementById('songKeyModeSelect');
+  const songSuggestBtn = document.getElementById('songSuggestBtn');
+  const songSuggestionRow = document.getElementById('songSuggestionRow');
+  const songExploreBtn = document.getElementById('songExploreBtn');
+  const songDiatonicRow = document.getElementById('songDiatonicRow');
+  const keyfinderInput = document.getElementById('keyfinderInput');
+  const keyfinderBtn = document.getElementById('keyfinderBtn');
+  const keyfinderError = document.getElementById('keyfinderError');
+  const keyfinderResult = document.getElementById('keyfinderResult');
+  const keyfinderKeyName = document.getElementById('keyfinderKeyName');
+  const keyfinderNote = document.getElementById('keyfinderNote');
+  const keyfinderChordRow = document.getElementById('keyfinderChordRow');
 
   let markerEl, dimLeft, dimRight, hitGroupEl, noteLabelsGroupEl, scaleOverlayGroupEl;
   const noteLabelEls = []; // [{ el, noteIndex }] for relabeling on accidental change
@@ -405,7 +429,7 @@
 
   function applyShowNotes() {
     if (noteLabelsGroupEl) {
-      const suppressed = settings.mode === 'scales' || settings.mode === 'progression';
+      const suppressed = settings.mode === 'scales' || settings.mode === 'progression' || settings.mode === 'songwriting';
       noteLabelsGroupEl.classList.toggle('visible', settings.showNotes && !suppressed);
     }
   }
@@ -903,6 +927,266 @@
   }
 
   /* =======================================================
+     Songwriting Helper: diatonic chords, random suggestions,
+     and a key finder — built on the same chord-quality data
+     used by Progression mode.
+     ======================================================= */
+  function classifyIntervals(intervals) {
+    const key = intervals.join(',');
+    for (const qKey in CHORD_QUALITIES) {
+      if (CHORD_QUALITIES[qKey].intervals.join(',') === key) return qKey;
+    }
+    return 'major';
+  }
+
+  // The chord built by stacking thirds on a given scale degree,
+  // derived directly from the scale's own interval pattern rather
+  // than a hand-typed table — works for major/minor automatically
+  // and stays correct if more scales are ever added.
+  function diatonicChordAt(scaleIntervals, degreeIndex, useSeventh) {
+    const n = scaleIntervals.length;
+    const steps = useSeventh ? [0, 2, 4, 6] : [0, 2, 4];
+    const rootAbs = scaleIntervals[degreeIndex % n];
+    const chordIntervals = steps.map(s => {
+      const idx = (degreeIndex + s) % n;
+      const wraps = Math.floor((degreeIndex + s) / n);
+      const abs = scaleIntervals[idx] + wraps * 12;
+      return ((abs - rootAbs) % 12 + 12) % 12;
+    });
+    return { chordIntervals, qualityKey: classifyIntervals(chordIntervals) };
+  }
+
+  const ROMAN_NUMERALS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
+  function romanNumeralFor(degreeIndex, qualityKey) {
+    const numeral = ROMAN_NUMERALS[degreeIndex];
+    if (qualityKey === 'dim' || qualityKey === 'dim7') return numeral.toLowerCase() + '°';
+    if (qualityKey === 'm7b5') return numeral.toLowerCase() + 'ø';
+    if (qualityKey === 'minor' || qualityKey === 'm7' || qualityKey === 'm6' || qualityKey === 'm9') return numeral.toLowerCase();
+    return numeral;
+  }
+
+  function getDiatonicChords(keyRootPc, isMinor, useSeventh) {
+    const scaleIntervals = (isMinor ? SCALES.minor : SCALES.major).intervals;
+    const chords = [];
+    for (let deg = 0; deg < scaleIntervals.length; deg++) {
+      const { qualityKey } = diatonicChordAt(scaleIntervals, deg, useSeventh);
+      const rootPc = (keyRootPc + scaleIntervals[deg]) % 12;
+      chords.push({ degree: deg, rootPc, qualityKey, roman: romanNumeralFor(deg, qualityKey) });
+    }
+    return chords;
+  }
+
+  // Roughly how common each diatonic degree is in real songs — used
+  // only to bias the random suggester, not a hard rule.
+  const DEGREE_WEIGHTS_MAJOR = [3, 2, 1, 3, 3, 2, 1];
+  const DEGREE_WEIGHTS_MINOR = [3, 1, 2, 2, 2, 2, 2];
+
+  function weightedRandomDegree(weights, avoidDegree) {
+    let pool = weights.map((w, i) => ({ i, w }));
+    if (avoidDegree !== null && pool.length > 1) pool = pool.filter(p => p.i !== avoidDegree);
+    const total = pool.reduce((s, p) => s + p.w, 0);
+    let r = Math.random() * total;
+    for (const p of pool) { if (r < p.w) return p.i; r -= p.w; }
+    return pool[pool.length - 1].i;
+  }
+
+  function suggestChordProgression(keyRootPc, isMinor, length) {
+    const diatonic = getDiatonicChords(keyRootPc, isMinor, false);
+    const weights = isMinor ? DEGREE_WEIGHTS_MINOR : DEGREE_WEIGHTS_MAJOR;
+    const result = [];
+    let prevDeg = null;
+    for (let i = 0; i < (length || 4); i++) {
+      const deg = weightedRandomDegree(weights, prevDeg);
+      result.push(diatonic[deg]);
+      prevDeg = deg;
+    }
+    return result;
+  }
+
+  function qualityFamily(qualityKey) {
+    if (qualityKey === 'minor' || qualityKey === 'm7' || qualityKey === 'm6' || qualityKey === 'm9') return 'minor';
+    if (qualityKey === 'dim' || qualityKey === 'dim7' || qualityKey === 'm7b5') return 'dim';
+    return 'major';
+  }
+
+  function relativeOf(root, isMinor) {
+    return isMinor ? { root: (root + 3) % 12, isMinor: false } : { root: (root + 9) % 12, isMinor: true };
+  }
+
+  // Scores all 24 keys (12 roots × major/minor) by how many input
+  // chords are diatonic to each, matching by root + broad quality
+  // family so "G7" still counts for a plain V, "Dm7" for a plain
+  // ii, etc.
+  function findMatchingKeys(inputChords) {
+    const results = [];
+    for (let root = 0; root < 12; root++) {
+      [false, true].forEach(isMinor => {
+        const diatonic = getDiatonicChords(root, isMinor, false);
+        let matchCount = 0;
+        inputChords.forEach(c => {
+          const fam = qualityFamily(c.qualityKey);
+          if (diatonic.some(d => d.rootPc === c.rootPc && qualityFamily(d.qualityKey) === fam)) matchCount++;
+        });
+        results.push({ root, isMinor, matchCount, diatonic });
+      });
+    }
+    results.sort((a, b) => b.matchCount - a.matchCount);
+    return results;
+  }
+
+  // Picks a single best-guess key out of the tied top scorers by
+  // preferring whichever one the progression actually starts or
+  // ends on (songs overwhelmingly resolve to their tonic), and
+  // separately notes the true relative major/minor if it's also
+  // tied — that's a real, honest ambiguity, not noise.
+  function pickBestKey(inputChords) {
+    const results = findMatchingKeys(inputChords);
+    const topScore = results[0].matchCount;
+    const bestKeys = results.filter(r => r.matchCount === topScore);
+
+    const firstRoot = inputChords[0].rootPc;
+    const lastRoot = inputChords[inputChords.length - 1].rootPc;
+    let candidates = bestKeys.filter(k => k.root === firstRoot);
+    if (candidates.length !== 1) candidates = bestKeys.filter(k => k.root === lastRoot);
+
+    let primary = null;
+    if (candidates.length === 1) primary = candidates[0];
+    else if (bestKeys.length <= 2) primary = bestKeys[0];
+
+    if (!primary) return { ambiguous: true, candidates: bestKeys, topScore, total: inputChords.length };
+
+    const rel = relativeOf(primary.root, primary.isMinor);
+    const relative = bestKeys.find(k => k.root === rel.root && k.isMinor === rel.isMinor) || null;
+    return { ambiguous: false, primary, relative, topScore, total: inputChords.length };
+  }
+
+  function populateNoteSelect(selectEl, selectedValue) {
+    selectEl.innerHTML = '';
+    for (let i = 0; i < 12; i++) {
+      const opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = noteLabel(i);
+      selectEl.appendChild(opt);
+    }
+    selectEl.value = String(selectedValue);
+  }
+
+  function renderChordChipRow(container, chords, onClick) {
+    container.innerHTML = '';
+    chords.forEach((c, idx) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chord-chip';
+      const symbol = chordSymbolFor(c.rootPc, c.qualityKey);
+      if (c.roman) {
+        btn.innerHTML = `${symbol}<span class="chord-chip-roman">${c.roman}</span>`;
+      } else {
+        btn.textContent = symbol;
+      }
+      btn.addEventListener('click', () => (onClick || sendToProgression)(chords, idx));
+      container.appendChild(btn);
+    });
+  }
+
+  // Hands a chord list off to Progression mode so the player can
+  // immediately see how to actually play what was just suggested.
+  function sendToProgression(chordList, activeIndex) {
+    const chords = chordList.map(c => ({
+      raw: chordSymbolFor(c.rootPc, c.qualityKey), rootPc: c.rootPc, qualityKey: c.qualityKey, valid: true,
+    }));
+    const text = chords.map(c => c.raw).join(' ');
+    settings.progressionText = text;
+    if (progressionInput) progressionInput.value = text;
+    state.progression.chords = chords;
+    state.progression.activeIndex = activeIndex || 0;
+    state.progression.viewQuality = null;
+    if (state.playing) stopSession();
+    settings.mode = 'progression';
+    saveState();
+    applyModeUI();
+  }
+
+  function runSuggestChords() {
+    const rootPc = Number(songKeyRootSelect.value);
+    const isMinor = songKeyModeSelect.value === 'minor';
+    const chords = suggestChordProgression(rootPc, isMinor, 4);
+    state.songwriting.lastSuggestion = chords;
+    renderChordChipRow(songSuggestionRow, chords);
+    songExploreBtn.hidden = false;
+    renderChordChipRow(songDiatonicRow, getDiatonicChords(rootPc, isMinor, false));
+  }
+
+  function runKeyFinder() {
+    const parsed = parseProgression(keyfinderInput.value).filter(c => c.valid);
+    keyfinderResult.hidden = true;
+    if (parsed.length === 0) {
+      keyfinderError.hidden = false;
+      keyfinderError.textContent = "Couldn't parse any chords — try something like C Am F G.";
+      return;
+    }
+    keyfinderError.hidden = true;
+    const guess = pickBestKey(parsed);
+    keyfinderResult.hidden = false;
+
+    if (guess.ambiguous) {
+      keyfinderKeyName.textContent = 'A few possibilities';
+      keyfinderNote.hidden = false;
+      keyfinderNote.textContent = "Not quite enough here to narrow it to one key — these all fit equally well:";
+      renderChordChipRow(keyfinderChordRow,
+        guess.candidates.slice(0, 4).map(k => ({ rootPc: k.root, qualityKey: k.isMinor ? 'minor' : 'major' })));
+      return;
+    }
+
+    const { primary, relative, topScore, total } = guess;
+    keyfinderKeyName.textContent = noteLabel(primary.root) + (primary.isMinor ? ' Minor' : ' Major');
+    const notes = [];
+    if (topScore < total) notes.push(`${topScore} of ${total} chords fit this key — the rest may be borrowed from elsewhere.`);
+    if (relative) notes.push(`Could also be read as ${noteLabel(relative.root)} ${relative.isMinor ? 'Minor' : 'Major'} (its relative ${relative.isMinor ? 'minor' : 'major'}) — same chords, different sense of "home".`);
+    keyfinderNote.hidden = notes.length === 0;
+    keyfinderNote.textContent = notes.join(' ');
+    renderChordChipRow(keyfinderChordRow, primary.diatonic);
+  }
+
+  function applySongSubModeUI() {
+    const sub = settings.songSubMode || 'suggest';
+    suggestPanelEl.hidden = sub !== 'suggest';
+    keyfinderPanelEl.hidden = sub !== 'keyfinder';
+    Array.from(songSubModeSwitch.querySelectorAll('.mode-btn')).forEach(b => {
+      b.setAttribute('aria-pressed', String(b.dataset.submode === sub));
+    });
+  }
+
+  function wireSongwritingControls() {
+    populateNoteSelect(songKeyRootSelect, settings.songKeyRoot);
+    songKeyModeSelect.value = settings.songKeyIsMinor ? 'minor' : 'major';
+
+    songKeyRootSelect.addEventListener('change', () => {
+      settings.songKeyRoot = Number(songKeyRootSelect.value);
+      saveState();
+    });
+    songKeyModeSelect.addEventListener('change', () => {
+      settings.songKeyIsMinor = songKeyModeSelect.value === 'minor';
+      saveState();
+    });
+    songSuggestBtn.addEventListener('click', runSuggestChords);
+    songExploreBtn.addEventListener('click', () => {
+      if (state.songwriting.lastSuggestion) sendToProgression(state.songwriting.lastSuggestion, 0);
+    });
+
+    keyfinderBtn.addEventListener('click', runKeyFinder);
+    keyfinderInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runKeyFinder(); });
+
+    Array.from(songSubModeSwitch.querySelectorAll('.mode-btn')).forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.submode === settings.songSubMode) return;
+        settings.songSubMode = btn.dataset.submode;
+        saveState();
+        applySongSubModeUI();
+      });
+    });
+  }
+
+  /* =======================================================
      Mode switching (Name it / Find it / Play it / Scales)
      ======================================================= */
   function applyModeUI() {
@@ -913,14 +1197,17 @@
     const mode = settings.mode;
     const isScales = mode === 'scales';
     const isProgression = mode === 'progression';
+    const isSongwriting = mode === 'songwriting';
     const isExplore = isScales && settings.scaleSubMode === 'explore';
 
     notePad.style.display = mode === 'identify' ? '' : 'none';
     degreePad.style.display = (isScales && !isExplore) ? '' : 'none';
-    startBtn.style.display = (isExplore || isProgression) ? 'none' : '';
+    startBtn.style.display = (isExplore || isProgression || isSongwriting) ? 'none' : '';
     scaleControls.hidden = !isScales;
     progressionControls.hidden = !isProgression;
     chordDetail.hidden = !isProgression;
+    songwritingControls.hidden = !isSongwriting;
+    if (boardCardEl) boardCardEl.hidden = isSongwriting;
 
     if (hitGroupEl) hitGroupEl.classList.toggle('active', mode === 'locate');
     if (mode !== 'mic') micPanel.hidden = true;
@@ -951,6 +1238,9 @@
       promptText.classList.remove('correct', 'wrong');
       if (state.progression.chords.length === 0) generateProgression();
       else { renderProgressionChips(); renderChordDetail(); }
+    } else if (isSongwriting) {
+      if (scaleOverlayGroupEl) scaleOverlayGroupEl.classList.remove('visible');
+      applySongSubModeUI();
     } else if (scaleOverlayGroupEl) {
       scaleOverlayGroupEl.classList.remove('visible');
     }
@@ -983,14 +1273,7 @@
   }
 
   function renderScaleRootOptions() {
-    scaleRootSelect.innerHTML = '';
-    for (let i = 0; i < 12; i++) {
-      const opt = document.createElement('option');
-      opt.value = String(i);
-      opt.textContent = noteLabel(i);
-      scaleRootSelect.appendChild(opt);
-    }
-    scaleRootSelect.value = String(settings.scaleRoot);
+    populateNoteSelect(scaleRootSelect, settings.scaleRoot);
   }
 
   function refreshScaleView() {
@@ -1612,6 +1895,7 @@
         renderNotePad();
         updateNoteLabelsText();
         renderScaleRootOptions();
+        populateNoteSelect(songKeyRootSelect, settings.songKeyRoot);
       });
     });
     document.querySelectorAll('#instrumentRadios input').forEach(r => {
@@ -1735,6 +2019,7 @@
     renderDegreePad();
     wireScaleControls();
     wireProgressionControls();
+    wireSongwritingControls();
     wireSettings();
     wireKeyboard();
     wireModeSwitch();
