@@ -34,11 +34,29 @@ No build step, no dependencies. Plain HTML/CSS/JS.
   hand-typed shape table — they're derived algorithmically from where
   the root note falls on each string, so they work correctly for any
   root and any of the scale types above without extra data.
+- **Progression** — type a chord progression (e.g. `C G Am F`, or with
+  extensions like `Cmaj7 A7 Dm G7`) and hit Generate. Tap any chord to
+  see up to 4 different ways to play it — open position first, then
+  alternates further up the neck — each as a standard chord-box
+  diagram, plus that voicing highlighted on the main fretboard so you
+  can see where it sits on the whole neck. A **▶** button on each
+  voicing plays a quick synthesized strum of the actual notes.
+
+  Every chord also offers a row of **substitutions** — e.g. a plain
+  `C` offers `C7`, `Cmaj7`, `Csus4`, `Cadd9` as one-click alternates —
+  so you're not locked into exactly what you typed. Voicings are
+  generated algorithmically from each chord's interval formula (not a
+  hand-typed shape table), so any of the 17 supported qualities work
+  at any root: major, minor, 7, maj7, m7, m7♭5, dim, dim7, aug, sus2,
+  sus4, add9, 6, m6, 9, m9, and power chords. Chord symbols are
+  case-sensitive where it matters (`M7` vs `m7`) and otherwise
+  forgiving about capitalization.
 
 **Show note names** (in Settings → Display) overlays every fret with
 its note name — handy as training wheels while learning, or as a
 built-in hint in Find/Play mode. (It's automatically hidden in Scales
-mode, since the scale overlay already covers that same visual space.)
+and Progression modes, since their own overlays already cover that
+same visual space.)
 
 ## Microphone mode
 
@@ -138,6 +156,13 @@ above — no config changes needed either way.
   — add a Dorian or Mixolydian entry, for instance, the same shape as
   the existing ones, and it'll show up in the Scale dropdown and work
   with the position stepper automatically.
+- **Chords:** `CHORD_QUALITIES` defines each chord type the same way
+  (intervals + a label + the symbol suffix), `CHORD_SUFFIX_ALIASES`
+  maps text like "maj7"/"M7"/"Δ7" to that quality, and
+  `CHORD_SUBSTITUTIONS` controls which "try instead" chips show up per
+  quality. Add an entry to each and the voicing search, chord-box
+  diagrams, and progression parser all pick it up automatically —
+  nothing else to update.
 - **Colors/fonts:** all design tokens are CSS custom properties at the
   top of `css/style.css` (`:root { … }`).
 - **Fret range presets:** edit the `<div id="rangeRadios">` options in
