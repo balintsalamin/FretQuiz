@@ -61,6 +61,7 @@
     <button type="button" class="mode-btn" data-mode="mic" aria-pressed="false">Play the Note</button>
     <button type="button" class="mode-btn" data-mode="scales" aria-pressed="false">Scales</button>
     <button type="button" class="mode-btn" data-mode="progression" aria-pressed="false">Progression</button>
+    <button type="button" class="mode-btn" data-mode="songwriting" aria-pressed="false">Songwriting</button>
   </div>
   <p class="mic-support-note" id="micUnsupportedNote" hidden>
     "Play the Note" needs microphone support in a secure (https) context — it's unavailable on this
@@ -75,6 +76,50 @@
       <button type="button" class="ghost-btn accent" id="progressionGenerate">Generate</button>
     </div>
     <div class="prog-chip-row" id="progressionChips"></div>
+  </div>
+
+  <!-- ===== Songwriting helper (Songwriting mode only) ===== -->
+  <div class="songwriting-controls" id="songwritingControls" hidden>
+    <div class="mode-switch small" id="songSubModeSwitch" role="group" aria-label="Songwriting tool">
+      <button type="button" class="mode-btn" data-submode="suggest" aria-pressed="true">Suggest Chords</button>
+      <button type="button" class="mode-btn" data-submode="keyfinder" aria-pressed="false">Key Finder</button>
+    </div>
+
+    <div class="song-panel" id="suggestPanel">
+      <div class="scale-row">
+        <label class="scale-field">
+          <span>Key</span>
+          <select id="songKeyRootSelect"></select>
+        </label>
+        <label class="scale-field">
+          <span>Mode</span>
+          <select id="songKeyModeSelect">
+            <option value="major">Major</option>
+            <option value="minor">Minor</option>
+          </select>
+        </label>
+        <button type="button" class="ghost-btn accent" id="songSuggestBtn">🎲 Suggest Chords</button>
+      </div>
+      <div class="prog-chip-row" id="songSuggestionRow"></div>
+      <button type="button" class="ghost-btn" id="songExploreBtn" hidden>Explore these in Progression →</button>
+      <div class="song-diatonic">
+        <h3>All chords in this key</h3>
+        <div class="prog-chip-row" id="songDiatonicRow"></div>
+      </div>
+    </div>
+
+    <div class="song-panel" id="keyfinderPanel" hidden>
+      <div class="prog-input-row">
+        <input type="text" id="keyfinderInput" class="prog-input" placeholder="e.g. C Am F G" aria-label="Chords to identify" />
+        <button type="button" class="ghost-btn accent" id="keyfinderBtn">Find Key</button>
+      </div>
+      <p class="chord-detail-error" id="keyfinderError" hidden></p>
+      <div class="keyfinder-result" id="keyfinderResult" hidden>
+        <div class="chord-detail-name" id="keyfinderKeyName"></div>
+        <p class="keyfinder-note" id="keyfinderNote" hidden></p>
+        <div class="prog-chip-row" id="keyfinderChordRow"></div>
+      </div>
+    </div>
   </div>
 
   <!-- ===== Scale controls (Scales mode only) ===== -->
@@ -246,4 +291,4 @@
 
 <script src="js/app.js"></script>
 </body>
-</html>
+  </html>
