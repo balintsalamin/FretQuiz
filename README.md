@@ -51,6 +51,25 @@ No build step, no dependencies. Plain HTML/CSS/JS.
   sus4, add9, 6, m6, 9, m9, and power chords. Chord symbols are
   case-sensitive where it matters (`M7` vs `m7`) and otherwise
   forgiving about capitalization.
+- **Songwriting** — a helper for when you're starting from an idea
+  rather than a specific fretboard question. Two tools:
+  - **Suggest Chords** — pick a key (root + major/minor) and hit 🎲 for
+    a random 4-chord progression drawn from that key's diatonic
+    chords, biased toward the ones that actually show up in songs
+    (I/IV/V/vi more often than iii/vii°). The full 7-chord palette for
+    that key is always shown below it too. Any chord — suggested or
+    not — jumps straight to Progression mode to show you how to play
+    it.
+  - **Key Finder** — type chords you already have (`C Am F G`,
+    `Dm7 G7 Cmaj7`, whatever) and it works out the most likely key by
+    checking all 24 major/minor keys and picking whichever explains
+    the most chords, preferring whichever key's tonic the progression
+    actually starts or ends on when there's a tie. If a chord doesn't
+    fit anywhere (a borrowed chord — very normal), it says so rather
+    than forcing a bad match, and it's upfront about relative
+    major/minor ambiguity (e.g. "C Am F G" is honestly *either* C
+    Major or A Minor — same chords — so both get mentioned, with a
+    best guess based on chord order).
 
 **Show note names** (in Settings → Display) overlays every fret with
 its note name — handy as training wheels while learning, or as a
@@ -163,6 +182,12 @@ above — no config changes needed either way.
   quality. Add an entry to each and the voicing search, chord-box
   diagrams, and progression parser all pick it up automatically —
   nothing else to update.
+- **Songwriting suggestions:** `DEGREE_WEIGHTS_MAJOR`/`_MINOR` near
+  the Songwriting section control how often each scale degree gets
+  picked (I/IV/V/vi weighted higher than iii/vii° by default, roughly
+  matching how often they show up in real songs) — raise or flatten
+  these if you want the suggester to lean more/less toward the
+  obvious choices.
 - **Colors/fonts:** all design tokens are CSS custom properties at the
   top of `css/style.css` (`:root { … }`).
 - **Fret range presets:** edit the `<div id="rangeRadios">` options in
