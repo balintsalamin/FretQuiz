@@ -170,6 +170,7 @@ body{
    ========================================================= */
 .mode-switch{
   display:flex;
+  flex-wrap: wrap;
   gap:4px;
   background: linear-gradient(180deg, #201610, #170f0a);
   border:1px solid rgba(156,148,136,0.16);
@@ -177,7 +178,8 @@ body{
   padding:4px;
 }
 .mode-btn{
-  flex:1;
+  flex:1 1 auto;
+  min-width: 84px;
   font-family: var(--font-ui);
   font-size:12px;
   font-weight:700;
@@ -208,8 +210,167 @@ body{
 }
 
 /* =========================================================
-   Scale controls (Scales mode)
+   Progression controls (Progression mode)
    ========================================================= */
+.progression-controls{
+  background: linear-gradient(180deg, #201610, #170f0a);
+  border:1px solid rgba(156,148,136,0.16);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+.prog-input-row{
+  display:flex;
+  gap:10px;
+}
+.prog-input{
+  flex:1;
+  font-family: var(--font-mono);
+  font-size:14px;
+  letter-spacing:0.02em;
+  color: var(--lcd-glow);
+  background: var(--lcd-bg);
+  border:1px solid rgba(247,200,105,0.3);
+  border-radius:8px;
+  padding:9px 12px;
+}
+.prog-input::placeholder{ color: rgba(247,200,105,0.35); }
+.ghost-btn.accent{
+  color: var(--brass-hi);
+  border-color: rgba(207,159,79,0.45);
+  white-space:nowrap;
+}
+.ghost-btn.accent:hover{ color: var(--brass-glow); border-color: rgba(207,159,79,0.7); }
+
+.prog-chip-row{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+.chord-chip{
+  font-family: var(--font-mono);
+  font-size:13px;
+  font-weight:700;
+  color: var(--nickel-hi);
+  background: linear-gradient(180deg, #2c1d13, #1b120c);
+  border:1px solid rgba(156,148,136,0.3);
+  border-radius:8px;
+  padding:8px 14px;
+  cursor:pointer;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+}
+.chord-chip:hover{ border-color: rgba(207,159,79,0.5); color: var(--brass-hi); }
+.chord-chip.active{
+  background: linear-gradient(180deg, var(--brass-hi), var(--brass));
+  color: var(--void);
+  border-color: transparent;
+}
+.chord-chip.invalid{
+  color: var(--red-hi);
+  border-color: rgba(193,68,60,0.5);
+  background: linear-gradient(180deg, #3a1c1a, #241211);
+}
+.prog-chip-row-sub .chord-chip{ font-size:12px; padding:6px 11px; }
+
+/* =========================================================
+   Chord detail (Progression mode)
+   ========================================================= */
+.chord-detail{
+  background: linear-gradient(180deg, #211710, #170f0a);
+  border:1px solid rgba(156,148,136,0.16);
+  border-radius: var(--radius-lg);
+  padding: 18px 16px;
+  display:flex;
+  flex-direction:column;
+  gap:14px;
+}
+.chord-detail-head{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  align-items:center;
+  text-align:center;
+}
+.chord-detail-name{
+  font-family: var(--font-ui);
+  font-weight:800;
+  font-size:22px;
+  letter-spacing:0.02em;
+  color: var(--brass-hi);
+}
+.chord-detail-error{
+  text-align:center;
+  font-size:13px;
+  color: var(--red-hi);
+  margin:0;
+}
+
+.chord-voicings{
+  display:grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap:12px;
+}
+.voicing-card{
+  background: rgba(255,255,255,0.02);
+  border:1px solid rgba(156,148,136,0.16);
+  border-radius: var(--radius-sm);
+  padding:10px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:6px;
+  cursor:pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.voicing-card:hover{ border-color: rgba(247,200,105,0.35); }
+.voicing-card.selected{
+  border-color: var(--brass-hi);
+  background: rgba(247,200,105,0.06);
+  box-shadow: 0 0 0 1px rgba(247,200,105,0.25);
+}
+.voicing-card-label{
+  font-family: var(--font-mono);
+  font-size:11px;
+  color: var(--ink-dim);
+  letter-spacing:0.03em;
+}
+.voicing-card svg{ width:100%; height:auto; max-width:120px; }
+.voicing-play-btn{
+  width:28px; height:28px;
+  border-radius:50%;
+  border:1px solid rgba(156,148,136,0.35);
+  background: linear-gradient(180deg, #2c1d13, #1b120c);
+  color: var(--brass-hi);
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:11px;
+  padding:0;
+}
+.voicing-play-btn:hover{ border-color: rgba(207,159,79,0.6); }
+
+.chord-diagram{ display:block; }
+.cd-string{ stroke: var(--nickel); stroke-width:1.5; }
+.cd-fret{ stroke: var(--nickel); stroke-width:1; opacity:0.6; }
+.cd-nut{ stroke: var(--bone); stroke-width:3; }
+.cd-fretlabel{
+  font-family: var(--font-mono);
+  font-size:9px;
+  fill: var(--ink-faint);
+  dominant-baseline:middle;
+}
+.cd-marker{
+  font-family: var(--font-mono);
+  font-size:11px;
+  fill: var(--ink-dim);
+  text-anchor:middle;
+}
+.cd-dot{ fill: var(--scale-tone); stroke: rgba(0,0,0,0.35); stroke-width:1; }
+.cd-dot.root{ fill: var(--brass-glow); }
+
 .scale-controls{
   background: linear-gradient(180deg, #201610, #170f0a);
   border:1px solid rgba(156,148,136,0.16);
