@@ -18,14 +18,80 @@
     blues:   { name: 'Blues',            intervals: [0,3,5,6,7,10],   degrees: ['1','♭3','4','♭5','5','♭7'] },
   };
 
+  // Chord qualities: semitone offsets from the root, a display label,
+  // and the symbol suffix appended after the root letter (e.g. "m7").
+  const CHORD_QUALITIES = {
+    major: { intervals: [0,4,7],      label: 'Major',            suffix: '' },
+    minor: { intervals: [0,3,7],      label: 'Minor',            suffix: 'm' },
+    dom7:  { intervals: [0,4,7,10],   label: '7',                suffix: '7' },
+    maj7:  { intervals: [0,4,7,11],   label: 'Major 7',          suffix: 'maj7' },
+    m7:    { intervals: [0,3,7,10],   label: 'Minor 7',          suffix: 'm7' },
+    m7b5:  { intervals: [0,3,6,10],   label: 'Half-diminished',  suffix: 'm7b5' },
+    dim:   { intervals: [0,3,6],      label: 'Diminished',       suffix: 'dim' },
+    dim7:  { intervals: [0,3,6,9],    label: 'Diminished 7',     suffix: 'dim7' },
+    aug:   { intervals: [0,4,8],      label: 'Augmented',        suffix: 'aug' },
+    sus2:  { intervals: [0,2,7],      label: 'Sus2',             suffix: 'sus2' },
+    sus4:  { intervals: [0,5,7],      label: 'Sus4',             suffix: 'sus4' },
+    add9:  { intervals: [0,4,7,2],    label: 'Add9',             suffix: 'add9' },
+    six:   { intervals: [0,4,7,9],    label: '6',                suffix: '6' },
+    m6:    { intervals: [0,3,7,9],    label: 'Minor 6',          suffix: 'm6' },
+    nine:  { intervals: [0,4,7,10,2], label: '9',                suffix: '9' },
+    m9:    { intervals: [0,3,7,10,2], label: 'Minor 9',          suffix: 'm9' },
+    power: { intervals: [0,7],        label: 'Power chord',      suffix: '5' },
+  };
+
+  // Text -> quality key. Checked case-sensitively first (so 'm' vs 'M'
+  // stay distinct), then case-insensitively as a fallback.
+  const CHORD_SUFFIX_ALIASES = {
+    '': 'major', 'maj': 'major', 'M': 'major',
+    'm': 'minor', 'min': 'minor', '-': 'minor',
+    '7': 'dom7',
+    'maj7': 'maj7', 'M7': 'maj7', 'Δ': 'maj7', 'Δ7': 'maj7',
+    'm7': 'm7', 'min7': 'm7', '-7': 'm7',
+    'm7b5': 'm7b5', 'm7-5': 'm7b5', 'ø': 'm7b5',
+    'dim': 'dim', '°': 'dim',
+    'dim7': 'dim7', '°7': 'dim7',
+    'aug': 'aug', '+': 'aug',
+    'sus2': 'sus2',
+    'sus4': 'sus4', 'sus': 'sus4',
+    'add9': 'add9',
+    '6': 'six',
+    'm6': 'm6', 'min6': 'm6',
+    '9': 'nine',
+    'm9': 'm9', 'min9': 'm9',
+    '5': 'power',
+  };
+
+  // "Doesn't have to be strictly the same chord" — a few closely
+  // related qualities offered as one-click alternates per chord.
+  const CHORD_SUBSTITUTIONS = {
+    major: ['dom7', 'maj7', 'sus4', 'add9'],
+    minor: ['m7', 'm9', 'm6'],
+    dom7:  ['nine', 'major'],
+    maj7:  ['six', 'major'],
+    m7:    ['m9', 'minor'],
+    m7b5:  ['dim7', 'm7'],
+    dim:   ['dim7'],
+    dim7:  ['dim'],
+    aug:   ['major'],
+    sus2:  ['major', 'add9'],
+    sus4:  ['major', 'add9'],
+    add9:  ['major', 'sus4'],
+    six:   ['major', 'maj7'],
+    m6:    ['minor', 'm7'],
+    nine:  ['dom7', 'major'],
+    m9:    ['m7', 'minor'],
+    power: ['major', 'minor'],
+  };
+
   // Rendered top-to-bottom, the way a player looks down at the neck.
   const STRINGS = [
-    { stringNum:1, label:'E', openIndex:4,  kind:'plain', thickness:1.6 },
-    { stringNum:2, label:'B', openIndex:11, kind:'plain', thickness:2.1 },
-    { stringNum:3, label:'G', openIndex:7,  kind:'plain', thickness:2.6 },
-    { stringNum:4, label:'D', openIndex:2,  kind:'wound', thickness:3.2 },
-    { stringNum:5, label:'A', openIndex:9,  kind:'wound', thickness:3.8 },
-    { stringNum:6, label:'E', openIndex:4,  kind:'wound', thickness:4.4 },
+    { stringNum:1, label:'E', openIndex:4,  kind:'plain', thickness:1.6, openFreq:329.63 },
+    { stringNum:2, label:'B', openIndex:11, kind:'plain', thickness:2.1, openFreq:246.94 },
+    { stringNum:3, label:'G', openIndex:7,  kind:'plain', thickness:2.6, openFreq:196.00 },
+    { stringNum:4, label:'D', openIndex:2,  kind:'wound', thickness:3.2, openFreq:146.83 },
+    { stringNum:5, label:'A', openIndex:9,  kind:'wound', thickness:3.8, openFreq:110.00 },
+    { stringNum:6, label:'E', openIndex:4,  kind:'wound', thickness:4.4, openFreq:82.41  },
   ];
 
   /* =======================================================
@@ -75,6 +141,7 @@
     scalePosition: 0,      // index into computed positions
     scaleFullNeck: false,  // show the whole board instead of one position
     scaleSubMode: 'explore', // 'explore' | 'quiz'
+    progressionText: 'C G Am F',
   });
   const defaultStats = () => ({ streak: 0, bestStreak: 0, correct: 0, total: 0 });
 
@@ -108,6 +175,13 @@
     timeoutHandle: null,
     dangerHandle: null,
     micStreak: { note: null, count: 0 },
+    progression: {
+      chords: [],        // [{ raw, rootPc, qualityKey, valid }]
+      activeIndex: 0,
+      viewQuality: null, // substitution override for the active chord, or null
+      voicings: [],
+      activeVoicingIndex: 0,
+    },
   };
 
   /* =======================================================
@@ -150,6 +224,15 @@
   const scalePositionLabel = document.getElementById('scalePositionLabel');
   const scaleFullNeckEl = document.getElementById('scaleFullNeck');
   const scaleSubModeSwitch = document.getElementById('scaleSubModeSwitch');
+  const progressionControls = document.getElementById('progressionControls');
+  const progressionInput = document.getElementById('progressionInput');
+  const progressionGenerate = document.getElementById('progressionGenerate');
+  const progressionChips = document.getElementById('progressionChips');
+  const chordDetail = document.getElementById('chordDetail');
+  const chordDetailName = document.getElementById('chordDetailName');
+  const chordDetailError = document.getElementById('chordDetailError');
+  const chordSubRow = document.getElementById('chordSubRow');
+  const chordVoicings = document.getElementById('chordVoicings');
 
   let markerEl, dimLeft, dimRight, hitGroupEl, noteLabelsGroupEl, scaleOverlayGroupEl;
   const noteLabelEls = []; // [{ el, noteIndex }] for relabeling on accidental change
@@ -322,7 +405,8 @@
 
   function applyShowNotes() {
     if (noteLabelsGroupEl) {
-      noteLabelsGroupEl.classList.toggle('visible', settings.showNotes && settings.mode !== 'scales');
+      const suppressed = settings.mode === 'scales' || settings.mode === 'progression';
+      noteLabelsGroupEl.classList.toggle('visible', settings.showNotes && !suppressed);
     }
   }
 
@@ -464,6 +548,361 @@
   }
 
   /* =======================================================
+     Chords / Progression mode
+     ======================================================= */
+  const NOTE_LETTER_TO_PC = { C:0, D:2, E:4, F:5, G:7, A:9, B:11 };
+
+  // "C", "G7", "F#m7", "Bbmaj7", "Dsus4" ... -> { rootPc, qualityKey, symbol } or null
+  function parseChordSymbol(raw) {
+    const text = String(raw).trim();
+    if (!text) return null;
+    const m = /^([A-Ga-g])([#♯b♭]?)(.*)$/.exec(text);
+    if (!m) return null;
+    const letter = m[1].toUpperCase();
+    let pc = NOTE_LETTER_TO_PC[letter];
+    if (pc === undefined) return null;
+    if (m[2] === '#' || m[2] === '♯') pc = (pc + 1) % 12;
+    else if (m[2] === 'b' || m[2] === '♭') pc = (pc + 11) % 12;
+
+    const rest = m[3].trim();
+    let qualityKey = Object.prototype.hasOwnProperty.call(CHORD_SUFFIX_ALIASES, rest)
+      ? CHORD_SUFFIX_ALIASES[rest]
+      : undefined;
+    if (qualityKey === undefined) {
+      const lower = rest.toLowerCase();
+      qualityKey = Object.prototype.hasOwnProperty.call(CHORD_SUFFIX_ALIASES, lower)
+        ? CHORD_SUFFIX_ALIASES[lower]
+        : undefined;
+    }
+    if (qualityKey === undefined) return null;
+    return { rootPc: pc, qualityKey, symbol: text };
+  }
+
+  function chordSymbolFor(rootPc, qualityKey) {
+    const q = CHORD_QUALITIES[qualityKey];
+    return noteLabel(rootPc) + (q ? q.suffix : '');
+  }
+
+  // How essential a chord tone is to identifying the chord's quality —
+  // used to score candidate voicings (root/3rd matter more than the 5th).
+  function intervalWeight(semitone) {
+    if (semitone === 0) return 3;
+    if (semitone === 2 || semitone === 3 || semitone === 4 || semitone === 5) return 3;
+    if (semitone === 9 || semitone === 10 || semitone === 11) return 2;
+    return 1;
+  }
+
+  // Best-scoring playable fingering within a single fret window.
+  function searchChordWindow(fretMin, fretMax, targetPCs, weights, rootPc, allowOpen, minStrings) {
+    const candidates = STRINGS.map((s) => {
+      const opts = [null];
+      for (let fret = fretMin; fret <= fretMax; fret++) {
+        if (fret === 0 && !allowOpen) continue;
+        const pc = (s.openIndex + fret) % 12;
+        if (targetPCs.has(pc)) opts.push(fret);
+      }
+      return opts;
+    });
+
+    let best = null, bestScore = -Infinity;
+    const sizes = candidates.map(c => c.length);
+    const total = sizes.reduce((a, b) => a * b, 1);
+    for (let idx = 0; idx < total; idx++) {
+      let rem = idx;
+      const combo = [];
+      for (let si = 0; si < 6; si++) { combo.push(candidates[si][rem % sizes[si]]); rem = Math.floor(rem / sizes[si]); }
+      const played = combo.map((f, si) => (f === null ? null : { si, f })).filter(Boolean);
+      if (played.length < minStrings) continue;
+
+      const soundingPCs = new Set(played.map(p => (STRINGS[p.si].openIndex + p.f) % 12));
+      if (!soundingPCs.has(rootPc)) continue;
+
+      const frettedNonOpen = played.filter(p => p.f > 0).map(p => p.f);
+      if (frettedNonOpen.length > 0) {
+        const span = Math.max(...frettedNonOpen) - Math.min(...frettedNonOpen);
+        if (span > 4) continue;
+      }
+
+      let score = 0;
+      soundingPCs.forEach(pc => { score += weights[pc] || 0; });
+      // STRINGS is ordered high-E(0)..low-E(5), so the physically
+      // lowest-pitched played string has the largest string index.
+      const lowestPitchString = played.reduce((a, b) => (a.si > b.si ? a : b));
+      const lowestPc = (STRINGS[lowestPitchString.si].openIndex + lowestPitchString.f) % 12;
+      if (lowestPc === rootPc) score += 2;
+      score += Math.min(3, Math.max(0, played.length - 3));
+
+      if (score > bestScore) { bestScore = score; best = { combo, score, played }; }
+    }
+    return best;
+  }
+
+  // Up to 4 distinct, sensibly-spread voicings for a chord: the open/
+  // first-position shape (if playable) is always included first, then
+  // the best higher voicings that are at clearly different positions.
+  function findChordVoicings(rootPc, intervals, opts) {
+    opts = opts || {};
+    const minStrings = opts.minStrings || 3;
+    const targetPCs = new Set(intervals.map(iv => (rootPc + iv) % 12));
+    const weights = {};
+    intervals.forEach(iv => { weights[(rootPc + iv) % 12] = intervalWeight(iv); });
+
+    const perWindow = [];
+    for (let ws = 0; ws <= 8; ws++) {
+      const r = searchChordWindow(ws, ws + 4, targetPCs, weights, rootPc, ws === 0, minStrings);
+      if (r) perWindow.push(r);
+    }
+    if (perWindow.length === 0) return [];
+
+    const seen = new Set();
+    const distinct = [];
+    perWindow.forEach(r => { const key = r.combo.join(','); if (!seen.has(key)) { seen.add(key); distinct.push(r); } });
+
+    const chosen = [];
+    if (perWindow[0]) chosen.push(perWindow[0]);
+    distinct.slice().sort((a, b) => b.score - a.score).forEach(r => {
+      if (chosen.includes(r)) return;
+      const frets = r.played.filter(p => p.f > 0).map(p => p.f);
+      const lowest = frets.length ? Math.min(...frets) : 0;
+      const tooClose = chosen.some(c => {
+        const cf = c.played.filter(p => p.f > 0).map(p => p.f);
+        const cLow = cf.length ? Math.min(...cf) : 0;
+        return Math.abs(cLow - lowest) < 2;
+      });
+      if (!tooClose) chosen.push(r);
+    });
+
+    return chosen.slice(0, 4).sort((a, b) => {
+      const af = a.played.filter(p => p.f > 0).map(p => p.f); const aLow = af.length ? Math.min(...af) : 0;
+      const bf = b.played.filter(p => p.f > 0).map(p => p.f); const bLow = bf.length ? Math.min(...bf) : 0;
+      return aLow - bLow;
+    });
+  }
+
+  /* ---- mini chord-diagram (vertical) SVG ---- */
+  function chordDiagramSVG(voicing, rootPc) {
+    const comboTopToBottom = STRINGS.map((s, si) => {
+      const p = voicing.played.find(pp => pp.si === si);
+      return p ? p.f : null;
+    });
+    const fretted = comboTopToBottom.filter(f => f !== null && f > 0);
+    const hasOpen = comboTopToBottom.some(f => f === 0);
+    const maxFretted = fretted.length ? Math.max(...fretted) : 0;
+    const lowestFretted = fretted.length ? Math.min(...fretted) : 0;
+    const baseFret = (hasOpen || maxFretted <= 4) ? 0 : lowestFretted;
+
+    const W = 110, TOP_Y = 34, CELL_H = 24, STRING_X = [10, 28, 46, 64, 82, 100];
+    const rows = 4;
+    const H = TOP_Y + rows * CELL_H + 14;
+
+    let svg = `<svg viewBox="0 0 ${W} ${H}" class="chord-diagram">`;
+    // string lines
+    STRING_X.forEach(x => { svg += `<line x1="${x}" y1="${TOP_Y}" x2="${x}" y2="${TOP_Y + rows*CELL_H}" class="cd-string"/>`; });
+    // fret lines
+    for (let r = 0; r <= rows; r++) {
+      const y = TOP_Y + r * CELL_H;
+      svg += `<line x1="${STRING_X[0]}" y1="${y}" x2="${STRING_X[5]}" y2="${y}" class="${r===0 && baseFret===0 ? 'cd-nut' : 'cd-fret'}"/>`;
+    }
+    if (baseFret > 0) {
+      svg += `<text x="${STRING_X[5]+8}" y="${TOP_Y+10}" class="cd-fretlabel">${baseFret}fr</text>`;
+    }
+    // X / O markers above the nut
+    comboTopToBottom.forEach((f, si) => {
+      const x = STRING_X[si];
+      if (f === null) svg += `<text x="${x}" y="${TOP_Y-10}" class="cd-marker">✕</text>`;
+      else if (f === 0) svg += `<text x="${x}" y="${TOP_Y-10}" class="cd-marker">○</text>`;
+    });
+    // dots
+    comboTopToBottom.forEach((f, si) => {
+      if (f === null || f === 0) return;
+      const row = baseFret === 0 ? f : (f - baseFret + 1);
+      const y = TOP_Y + (row - 0.5) * CELL_H;
+      const pc = (STRINGS[si].openIndex + f) % 12;
+      const isRoot = pc === rootPc;
+      svg += `<circle cx="${STRING_X[si]}" cy="${y}" r="8" class="cd-dot${isRoot ? ' root' : ''}"/>`;
+    });
+    svg += '</svg>';
+    return svg;
+  }
+
+  /* ---- progression parsing + rendering ---- */
+  function parseProgression(text) {
+    return String(text).split(/[\s,]+/).filter(Boolean).map(raw => {
+      const parsed = parseChordSymbol(raw);
+      return parsed ? { raw, rootPc: parsed.rootPc, qualityKey: parsed.qualityKey, valid: true }
+                     : { raw, rootPc: null, qualityKey: null, valid: false };
+    });
+  }
+
+  function renderProgressionChips() {
+    progressionChips.innerHTML = '';
+    state.progression.chords.forEach((chord, idx) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chord-chip' + (idx === state.progression.activeIndex ? ' active' : '') + (!chord.valid ? ' invalid' : '');
+      btn.textContent = chord.valid ? chordSymbolFor(chord.rootPc, chord.qualityKey) : chord.raw;
+      btn.addEventListener('click', () => {
+        state.progression.activeIndex = idx;
+        state.progression.viewQuality = null;
+        renderProgressionChips();
+        renderChordDetail();
+      });
+      progressionChips.appendChild(btn);
+    });
+  }
+
+  function renderChordDetail() {
+    const chord = state.progression.chords[state.progression.activeIndex];
+    if (!chord) { chordDetail.hidden = true; return; }
+    chordDetail.hidden = false;
+
+    if (!chord.valid) {
+      chordDetailName.textContent = chord.raw;
+      chordDetailError.hidden = false;
+      chordDetailError.textContent = `Couldn't understand "${chord.raw}" — try things like C, G7, Am, Dmaj7, Fsus4.`;
+      chordSubRow.innerHTML = '';
+      chordVoicings.innerHTML = '';
+      state.progression.voicings = [];
+      updateChordOverlay();
+      return;
+    }
+    chordDetailError.hidden = true;
+
+    const viewQualityKey = state.progression.viewQuality || chord.qualityKey;
+    const quality = CHORD_QUALITIES[viewQualityKey];
+    chordDetailName.textContent = chordSymbolFor(chord.rootPc, viewQualityKey) + ' — ' + quality.label;
+
+    chordSubRow.innerHTML = '';
+    const subKeys = [chord.qualityKey, ...((CHORD_SUBSTITUTIONS[chord.qualityKey] || []))];
+    subKeys.forEach(qKey => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chord-chip' + (qKey === viewQualityKey ? ' active' : '');
+      btn.textContent = chordSymbolFor(chord.rootPc, qKey);
+      btn.addEventListener('click', () => {
+        state.progression.viewQuality = (qKey === chord.qualityKey) ? null : qKey;
+        renderChordDetail();
+      });
+      chordSubRow.appendChild(btn);
+    });
+
+    const voicings = findChordVoicings(chord.rootPc, quality.intervals, { minStrings: viewQualityKey === 'power' ? 2 : 3 });
+    state.progression.voicings = voicings;
+    state.progression.activeVoicingIndex = 0;
+    renderVoicingCards(voicings, chord.rootPc);
+    updateChordOverlay();
+  }
+
+  function renderVoicingCards(voicings, rootPc) {
+    chordVoicings.innerHTML = '';
+    if (voicings.length === 0) {
+      chordVoicings.innerHTML = '<p class="chord-detail-error">No playable voicing found in range — try a substitution above.</p>';
+      return;
+    }
+    voicings.forEach((v, idx) => {
+      const card = document.createElement('div');
+      card.className = 'voicing-card' + (idx === state.progression.activeVoicingIndex ? ' selected' : '');
+      const fretted = v.played.filter(p => p.f > 0).map(p => p.f);
+      const hasOpen = v.played.some(p => p.f === 0);
+      const label = (hasOpen || fretted.length === 0 || Math.max(...fretted, 0) <= 4) ? 'Open position' : `${Math.min(...fretted)}th fret`;
+
+      const labelEl = document.createElement('div');
+      labelEl.className = 'voicing-card-label';
+      labelEl.textContent = label;
+
+      const diagramWrap = document.createElement('div');
+      diagramWrap.innerHTML = chordDiagramSVG(v, rootPc);
+
+      const playBtn = document.createElement('button');
+      playBtn.type = 'button';
+      playBtn.className = 'voicing-play-btn';
+      playBtn.setAttribute('aria-label', 'Play this voicing');
+      playBtn.textContent = '▶';
+      playBtn.addEventListener('click', (e) => { e.stopPropagation(); strumVoicing(v); });
+
+      card.appendChild(labelEl);
+      card.appendChild(diagramWrap);
+      card.appendChild(playBtn);
+      card.addEventListener('click', () => {
+        state.progression.activeVoicingIndex = idx;
+        renderVoicingCards(voicings, rootPc);
+        updateChordOverlay();
+      });
+      chordVoicings.appendChild(card);
+    });
+  }
+
+  // Reuses the same dot/label elements built for the Scales overlay —
+  // only one of Scales/Progression is ever active at a time, so this
+  // is just a different way of populating the same visual layer.
+  function updateChordOverlay() {
+    if (!scaleOverlayGroupEl) return;
+    STRINGS.forEach((s, si) => {
+      for (let fret = 0; fret <= FRETS; fret++) {
+        const { dot, label } = scaleOverlayEls[si][fret];
+        dot.classList.add('hidden');
+        label.classList.add('hidden');
+      }
+    });
+    const chord = state.progression.chords[state.progression.activeIndex];
+    const voicing = state.progression.voicings[state.progression.activeVoicingIndex];
+    if (!chord || !chord.valid || !voicing) return;
+    voicing.played.forEach(p => {
+      const { dot } = scaleOverlayEls[p.si][p.f];
+      const pc = (STRINGS[p.si].openIndex + p.f) % 12;
+      dot.classList.remove('hidden');
+      dot.classList.toggle('root', pc === chord.rootPc);
+    });
+  }
+
+  function generateProgression() {
+    state.progression.chords = parseProgression(progressionInput.value);
+    state.progression.activeIndex = 0;
+    state.progression.viewQuality = null;
+    settings.progressionText = progressionInput.value;
+    saveState();
+    renderProgressionChips();
+    renderChordDetail();
+  }
+
+  function stringFrequency(stringIndex, fret) {
+    return STRINGS[stringIndex].openFreq * Math.pow(2, fret / 12);
+  }
+
+  function strumVoicing(voicing) {
+    if (!settings.sound || !voicing) return;
+    const ctx = ensureAudio();
+    if (!ctx) return;
+    try {
+      const notes = voicing.played.slice().sort((a, b) => b.si - a.si); // low string first (downstrum)
+      const now = ctx.currentTime;
+      notes.forEach((n, i) => {
+        const freq = stringFrequency(n.si, n.f);
+        const t0 = now + i * 0.035;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, t0);
+        gain.gain.setValueAtTime(0.0001, t0);
+        gain.gain.exponentialRampToValueAtTime(0.16, t0 + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.9);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(t0);
+        osc.stop(t0 + 0.95);
+      });
+    } catch (e) { /* ignore audio errors */ }
+  }
+
+  function wireProgressionControls() {
+    progressionInput.value = settings.progressionText;
+    progressionGenerate.addEventListener('click', generateProgression);
+    progressionInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') generateProgression();
+    });
+  }
+
+  /* =======================================================
      Mode switching (Name it / Find it / Play it / Scales)
      ======================================================= */
   function applyModeUI() {
@@ -473,12 +912,15 @@
 
     const mode = settings.mode;
     const isScales = mode === 'scales';
+    const isProgression = mode === 'progression';
     const isExplore = isScales && settings.scaleSubMode === 'explore';
 
     notePad.style.display = mode === 'identify' ? '' : 'none';
     degreePad.style.display = (isScales && !isExplore) ? '' : 'none';
-    startBtn.style.display = isExplore ? 'none' : '';
+    startBtn.style.display = (isExplore || isProgression) ? 'none' : '';
     scaleControls.hidden = !isScales;
+    progressionControls.hidden = !isProgression;
+    chordDetail.hidden = !isProgression;
 
     if (hitGroupEl) hitGroupEl.classList.toggle('active', mode === 'locate');
     if (mode !== 'mic') micPanel.hidden = true;
@@ -499,6 +941,16 @@
       } else {
         promptText.innerHTML = 'Tap <strong>Start</strong> to begin';
       }
+    } else if (isProgression) {
+      markerEl.classList.add('hidden');
+      if (scaleOverlayGroupEl) {
+        scaleOverlayGroupEl.classList.add('visible');
+        scaleOverlayGroupEl.classList.remove('quiz-mode');
+      }
+      promptText.innerHTML = 'Pick a chord above to see how to play it.';
+      promptText.classList.remove('correct', 'wrong');
+      if (state.progression.chords.length === 0) generateProgression();
+      else { renderProgressionChips(); renderChordDetail(); }
     } else if (scaleOverlayGroupEl) {
       scaleOverlayGroupEl.classList.remove('visible');
     }
@@ -1282,6 +1734,7 @@
     renderNotePad();
     renderDegreePad();
     wireScaleControls();
+    wireProgressionControls();
     wireSettings();
     wireKeyboard();
     wireModeSwitch();
