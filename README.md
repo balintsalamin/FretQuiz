@@ -9,7 +9,19 @@ offline, no browser chrome.
 
 No build step, no dependencies. Plain HTML/CSS/JS.
 
-## Modes
+## Layout
+
+Two main menus, each with its own sub-menu underneath — only the
+controls for whatever you've actually got open are ever on screen.
+
+```
+Quizzes  |  Songwriting              ← main menu
+─────────────────────────────
+Name the Note | Find the Note | Play the Note | Scales     ← if Quizzes
+Progression | Suggest Chords | Key Finder                  ← if Songwriting
+```
+
+### Quizzes
 
 - **Name the Note** — a note lights up on the board, tap the matching
   letter on the answer pad (or press the key on your keyboard).
@@ -34,13 +46,20 @@ No build step, no dependencies. Plain HTML/CSS/JS.
   hand-typed shape table — they're derived algorithmically from where
   the root note falls on each string, so they work correctly for any
   root and any of the scale types above without extra data.
+
+### Songwriting
+
+The fretboard isn't shown here — none of these three need it, so it
+gets out of the way.
+
 - **Progression** — type a chord progression (e.g. `C G Am F`, or with
   extensions like `Cmaj7 A7 Dm G7`) and hit Generate. Tap any chord to
   see up to 4 different ways to play it — open position first, then
   alternates further up the neck — each as a standard chord-box
-  diagram, plus that voicing highlighted on the main fretboard so you
-  can see where it sits on the whole neck. A **▶** button on each
-  voicing plays a quick synthesized strum of the actual notes.
+  diagram (low E string on the left, high E on the right, same as a
+  chart in a songbook), plus that voicing highlighted on a fretboard
+  view so you can see where it sits on the whole neck. A **▶** button
+  on each voicing plays a quick synthesized strum of the actual notes.
 
   Every chord also offers a row of **substitutions** — e.g. a plain
   `C` offers `C7`, `Cmaj7`, `Csus4`, `Cadd9` as one-click alternates —
@@ -51,31 +70,28 @@ No build step, no dependencies. Plain HTML/CSS/JS.
   sus4, add9, 6, m6, 9, m9, and power chords. Chord symbols are
   case-sensitive where it matters (`M7` vs `m7`) and otherwise
   forgiving about capitalization.
-- **Songwriting** — a helper for when you're starting from an idea
-  rather than a specific fretboard question. Two tools:
-  - **Suggest Chords** — pick a key (root + major/minor) and hit 🎲 for
-    a random 4-chord progression drawn from that key's diatonic
-    chords, biased toward the ones that actually show up in songs
-    (I/IV/V/vi more often than iii/vii°). The full 7-chord palette for
-    that key is always shown below it too. Any chord — suggested or
-    not — jumps straight to Progression mode to show you how to play
-    it.
-  - **Key Finder** — type chords you already have (`C Am F G`,
-    `Dm7 G7 Cmaj7`, whatever) and it works out the most likely key by
-    checking all 24 major/minor keys and picking whichever explains
-    the most chords, preferring whichever key's tonic the progression
-    actually starts or ends on when there's a tie. If a chord doesn't
-    fit anywhere (a borrowed chord — very normal), it says so rather
-    than forcing a bad match, and it's upfront about relative
-    major/minor ambiguity (e.g. "C Am F G" is honestly *either* C
-    Major or A Minor — same chords — so both get mentioned, with a
-    best guess based on chord order).
+- **Suggest Chords** — pick a key (root + major/minor) and hit 🎲 for
+  a random 4-chord progression drawn from that key's diatonic chords,
+  biased toward the ones that actually show up in songs (I/IV/V/vi
+  more often than iii/vii°). The full 7-chord palette for that key is
+  always shown below it too. Any chord — suggested or not — jumps
+  straight to Progression to show you how to play it.
+- **Key Finder** — type chords you already have (`C Am F G`,
+  `Dm7 G7 Cmaj7`, whatever) and it works out the most likely key by
+  checking all 24 major/minor keys and picking whichever explains the
+  most chords, preferring whichever key's tonic the progression
+  actually starts or ends on when there's a tie. If a chord doesn't
+  fit anywhere (a borrowed chord — very normal), it says so rather
+  than forcing a bad match, and it's upfront about relative
+  major/minor ambiguity (e.g. "C Am F G" is honestly *either* C Major
+  or A Minor — same chords — so both get mentioned, with a best guess
+  based on chord order).
 
 **Show note names** (in Settings → Display) overlays every fret with
 its note name — handy as training wheels while learning, or as a
 built-in hint in Find/Play mode. (It's automatically hidden in Scales
-and Progression modes, since their own overlays already cover that
-same visual space.)
+and Progression, since their own overlays already cover that same
+visual space.)
 
 ## Microphone mode
 
