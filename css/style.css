@@ -38,6 +38,16 @@
 
 *{ box-sizing: border-box; }
 html,body{ height:100%; }
+
+/* The browser's own [hidden]{display:none} rule loses to ANY author
+   rule that sets display on the same element, regardless of that
+   rule's specificity — author styles simply outrank user-agent
+   styles in the cascade. Almost every panel below sets its own
+   display:flex, so without this, toggling `hidden` via JS updates
+   the DOM property but has no visible effect. This one rule makes
+   `hidden` unconditionally win, everywhere, permanently. */
+[hidden]{ display: none !important; }
+
 body{
   margin:0;
   font-family: var(--font-ui);
@@ -958,4 +968,4 @@ select{
   .hdr-badge{ font-size:19px; }
   .board-card{ padding:14px 8px 12px; }
   .start-btn{ width:100%; }
-}
+        }
