@@ -133,7 +133,7 @@
     timerEnabled: false,
     timerSeconds: 8,
     sound: true,
-    mode: 'identify',      // 'identify' | 'locate' | 'mic' | 'scales'
+    mode: 'identify',      // 'identify' | 'locate' | 'mic' | 'scales' (within the Quizzes menu)
     showNotes: false,
     instrument: 'electric', // 'electric' | 'acoustic' — tunes mic-mode detection
     scaleRoot: 0,          // pitch class 0-11
@@ -142,7 +142,8 @@
     scaleFullNeck: false,  // show the whole board instead of one position
     scaleSubMode: 'explore', // 'explore' | 'quiz'
     progressionText: 'C G Am F',
-    songSubMode: 'suggest', // 'suggest' | 'keyfinder'
+    mainMenu: 'quizzes',    // 'quizzes' | 'songwriting'
+    songTool: 'progression', // 'progression' | 'suggest' | 'keyfinder' (within the Songwriting menu)
     songKeyRoot: 0,
     songKeyIsMinor: false,
   });
@@ -153,14 +154,31 @@
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        return {
-          settings: Object.assign(defaultSettings(), parsed.settings || {}),
-          stats: Object.assign(defaultStats(), parsed.stats || {}),
-        };
+        const settings = Object.assign(defaultSettings(), parsed.settings || {});
+        migrateSettings(settings, parsed.settings || {});
+        return { settings, stats: Object.assign(defaultStats(), parsed.stats || {}) };
       }
     } catch (e) { /* ignore, fall back to defaults */ }
     return { settings: defaultSettings(), stats: defaultStats() };
   }
+
+  // Before the two-tier menu, 'progression' and 'songwriting' were
+  // top-level values of settings.mode, and the suggest/key-finder
+  // toggle was settings.songSubMode. Fold anyone's saved state from
+  // that era into the new mainMenu/songTool shape instead of
+  // stranding them on a value that no longer exists.
+  function migrateSettings(settings, raw) {
+    if (raw.mode === 'progression') {
+      settings.mainMenu = 'songwriting';
+      settings.songTool = 'progression';
+      settings.mode = 'identify';
+    } else if (raw.mode === 'songwriting') {
+      settings.mainMenu = 'songwriting';
+      settings.songTool = raw.songSubMode === 'keyfinder' ? 'keyfinder' : 'suggest';
+      settings.mode = 'identify';
+    }
+  }
+
   function saveState() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ settings, stats })); }
     catch (e) { /* storage unavailable — quiz still works, just won't persist */ }
@@ -240,8 +258,8 @@
   const chordSubRow = document.getElementById('chordSubRow');
   const chordVoicings = document.getElementById('chordVoicings');
   const boardCardEl = document.querySelector('.board-card');
-  const songwritingControls = document.getElementById('songwritingControls');
-  const songSubModeSwitch = document.getElementById('songSubModeSwitch');
+  const mainMenuEl = document.getElementById('mainMenu');
+  const songToolSwitch = document.getElementById('songToolSwitch');
   const suggestPanelEl = document.getElementById('suggestPanel');
   const keyfinderPanelEl = document.getElementById('keyfinderPanel');
   const songKeyRootSelect = document.getElementById('songKeyRootSelect');
@@ -429,8 +447,9 @@
 
   function applyShowNotes() {
     if (noteLabelsGroupEl) {
-      const suppressed = settings.mode === 'scales' || settings.mode === 'progression' || settings.mode === 'songwriting';
-      noteLabelsGroupEl.classList.toggle('visible', settings.showNotes && !suppressed);
+      const isScales = settings.mainMenu === 'quizzes' && settings.mode === 'scales';
+      const isProgression = settings.mainMenu === 'songwriting' && settings.songTool === 'progression';
+      noteLabelsGroupEl.classList.toggle('visible', settings.showNotes && !isScales && !isProgression);
     }
   }
 
@@ -718,6 +737,10 @@
     const W = 110, TOP_Y = 34, CELL_H = 24, STRING_X = [10, 28, 46, 64, 82, 100];
     const rows = 4;
     const H = TOP_Y + rows * CELL_H + 14;
+    // STRINGS is ordered high-E(0)..low-E(5); chord charts read the
+    // other way — low E on the left, high E on the right — so flip
+    // string index to x-position here rather than using si directly.
+    const xForString = (si) => STRING_X[5 - si];
 
     let svg = `<svg viewBox="0 0 ${W} ${H}" class="chord-diagram">`;
     // string lines
@@ -732,7 +755,7 @@
     }
     // X / O markers above the nut
     comboTopToBottom.forEach((f, si) => {
-      const x = STRING_X[si];
+      const x = xForString(si);
       if (f === null) svg += `<text x="${x}" y="${TOP_Y-10}" class="cd-marker">✕</text>`;
       else if (f === 0) svg += `<text x="${x}" y="${TOP_Y-10}" class="cd-marker">○</text>`;
     });
@@ -743,7 +766,7 @@
       const y = TOP_Y + (row - 0.5) * CELL_H;
       const pc = (STRINGS[si].openIndex + f) % 12;
       const isRoot = pc === rootPc;
-      svg += `<circle cx="${STRING_X[si]}" cy="${y}" r="8" class="cd-dot${isRoot ? ' root' : ''}"/>`;
+      svg += `<circle cx="${xForString(si)}" cy="${y}" r="8" class="cd-dot${isRoot ? ' root' : ''}"/>`;
     });
     svg += '</svg>';
     return svg;
@@ -1101,9 +1124,10 @@
     state.progression.activeIndex = activeIndex || 0;
     state.progression.viewQuality = null;
     if (state.playing) stopSession();
-    settings.mode = 'progression';
+    settings.mainMenu = 'songwriting';
+    settings.songTool = 'progression';
     saveState();
-    applyModeUI();
+    applyNavigationUI();
   }
 
   function runSuggestChords() {
@@ -1147,15 +1171,6 @@
     renderChordChipRow(keyfinderChordRow, primary.diatonic);
   }
 
-  function applySongSubModeUI() {
-    const sub = settings.songSubMode || 'suggest';
-    suggestPanelEl.hidden = sub !== 'suggest';
-    keyfinderPanelEl.hidden = sub !== 'keyfinder';
-    Array.from(songSubModeSwitch.querySelectorAll('.mode-btn')).forEach(b => {
-      b.setAttribute('aria-pressed', String(b.dataset.submode === sub));
-    });
-  }
-
   function wireSongwritingControls() {
     populateNoteSelect(songKeyRootSelect, settings.songKeyRoot);
     songKeyModeSelect.value = settings.songKeyIsMinor ? 'minor' : 'major';
@@ -1175,20 +1190,19 @@
 
     keyfinderBtn.addEventListener('click', runKeyFinder);
     keyfinderInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runKeyFinder(); });
-
-    Array.from(songSubModeSwitch.querySelectorAll('.mode-btn')).forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (btn.dataset.submode === settings.songSubMode) return;
-        settings.songSubMode = btn.dataset.submode;
-        saveState();
-        applySongSubModeUI();
-      });
-    });
   }
 
   /* =======================================================
-     Mode switching (Name it / Find it / Play it / Scales)
+     Navigation: two tiers.
+       Tier 1 (mainMenu):  Quizzes | Songwriting
+       Tier 2a (mode):     within Quizzes — identify/locate/mic/scales
+       Tier 2b (songTool): within Songwriting — progression/suggest/keyfinder
+     Only the tier-2 row and leaf panel for the active tier-1
+     selection are ever visible.
      ======================================================= */
+
+  // Renders the Quizzes leaf (identify/locate/mic/scales). Assumes
+  // settings.mainMenu === 'quizzes'.
   function applyModeUI() {
     Array.from(modeSwitch.querySelectorAll('.mode-btn')).forEach(b => {
       b.setAttribute('aria-pressed', String(b.dataset.mode === settings.mode));
@@ -1196,18 +1210,17 @@
 
     const mode = settings.mode;
     const isScales = mode === 'scales';
-    const isProgression = mode === 'progression';
-    const isSongwriting = mode === 'songwriting';
     const isExplore = isScales && settings.scaleSubMode === 'explore';
 
     notePad.style.display = mode === 'identify' ? '' : 'none';
     degreePad.style.display = (isScales && !isExplore) ? '' : 'none';
-    startBtn.style.display = (isExplore || isProgression || isSongwriting) ? 'none' : '';
+    startBtn.style.display = isExplore ? 'none' : '';
     scaleControls.hidden = !isScales;
-    progressionControls.hidden = !isProgression;
-    chordDetail.hidden = !isProgression;
-    songwritingControls.hidden = !isSongwriting;
-    if (boardCardEl) boardCardEl.hidden = isSongwriting;
+    progressionControls.hidden = true;
+    chordDetail.hidden = true;
+    suggestPanelEl.hidden = true;
+    keyfinderPanelEl.hidden = true;
+    if (boardCardEl) boardCardEl.hidden = false;
 
     if (hitGroupEl) hitGroupEl.classList.toggle('active', mode === 'locate');
     if (mode !== 'mic') micPanel.hidden = true;
@@ -1228,19 +1241,6 @@
       } else {
         promptText.innerHTML = 'Tap <strong>Start</strong> to begin';
       }
-    } else if (isProgression) {
-      markerEl.classList.add('hidden');
-      if (scaleOverlayGroupEl) {
-        scaleOverlayGroupEl.classList.add('visible');
-        scaleOverlayGroupEl.classList.remove('quiz-mode');
-      }
-      promptText.innerHTML = 'Pick a chord above to see how to play it.';
-      promptText.classList.remove('correct', 'wrong');
-      if (state.progression.chords.length === 0) generateProgression();
-      else { renderProgressionChips(); renderChordDetail(); }
-    } else if (isSongwriting) {
-      if (scaleOverlayGroupEl) scaleOverlayGroupEl.classList.remove('visible');
-      applySongSubModeUI();
     } else if (scaleOverlayGroupEl) {
       scaleOverlayGroupEl.classList.remove('visible');
     }
@@ -1250,7 +1250,73 @@
     if (isScales) updateScaleOverlay();
   }
 
+  // Renders the Songwriting leaf (progression/suggest/keyfinder).
+  // Assumes settings.mainMenu === 'songwriting'.
+  function applySongToolUI() {
+    Array.from(songToolSwitch.querySelectorAll('.mode-btn')).forEach(b => {
+      b.setAttribute('aria-pressed', String(b.dataset.tool === settings.songTool));
+    });
+
+    const tool = settings.songTool;
+    const isProgression = tool === 'progression';
+    const isSuggest = tool === 'suggest';
+    const isKeyfinder = tool === 'keyfinder';
+
+    notePad.style.display = 'none';
+    degreePad.style.display = 'none';
+    startBtn.style.display = 'none';
+    scaleControls.hidden = true;
+    progressionControls.hidden = !isProgression;
+    chordDetail.hidden = !isProgression;
+    suggestPanelEl.hidden = !isSuggest;
+    keyfinderPanelEl.hidden = !isKeyfinder;
+    if (boardCardEl) boardCardEl.hidden = true;
+    micPanel.hidden = true;
+    targetNoteWrap.hidden = true;
+
+    if (isProgression) {
+      markerEl.classList.add('hidden');
+      if (scaleOverlayGroupEl) {
+        scaleOverlayGroupEl.classList.add('visible');
+        scaleOverlayGroupEl.classList.remove('quiz-mode');
+      }
+      promptText.innerHTML = 'Pick a chord above to see how to play it.';
+      promptText.classList.remove('correct', 'wrong');
+      if (state.progression.chords.length === 0) generateProgression();
+      else { renderProgressionChips(); renderChordDetail(); }
+    } else if (scaleOverlayGroupEl) {
+      scaleOverlayGroupEl.classList.remove('visible');
+    }
+
+    applyShowNotes();
+  }
+
+  // Top-level dispatcher: shows only the tier-2 row and leaf panel
+  // that belong to the active main menu.
+  function applyNavigationUI() {
+    const isQuizzes = settings.mainMenu === 'quizzes';
+    Array.from(mainMenuEl.querySelectorAll('.mode-btn')).forEach(b => {
+      b.setAttribute('aria-pressed', String(b.dataset.menu === settings.mainMenu));
+    });
+    modeSwitch.hidden = !isQuizzes;
+    songToolSwitch.hidden = isQuizzes;
+    micUnsupportedNote.hidden = !(isQuizzes && !micSupported);
+
+    if (isQuizzes) applyModeUI();
+    else applySongToolUI();
+  }
+
   function wireModeSwitch() {
+    Array.from(mainMenuEl.querySelectorAll('.mode-btn')).forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.menu === settings.mainMenu) return;
+        if (state.playing) stopSession();
+        settings.mainMenu = btn.dataset.menu;
+        saveState();
+        applyNavigationUI();
+      });
+    });
+
     Array.from(modeSwitch.querySelectorAll('.mode-btn')).forEach(btn => {
       btn.addEventListener('click', () => {
         if (btn.disabled || btn.dataset.mode === settings.mode) return;
@@ -1258,6 +1324,15 @@
         settings.mode = btn.dataset.mode;
         saveState();
         applyModeUI();
+      });
+    });
+
+    Array.from(songToolSwitch.querySelectorAll('.mode-btn')).forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.tool === settings.songTool) return;
+        settings.songTool = btn.dataset.tool;
+        saveState();
+        applySongToolUI();
       });
     });
 
@@ -2031,10 +2106,9 @@
         micBtn.disabled = true;
         micBtn.title = 'Requires microphone support in a secure (https) context.';
       }
-      micUnsupportedNote.hidden = false;
       if (settings.mode === 'mic') settings.mode = 'identify'; // don't strand the user on a dead mode
     }
-    applyModeUI();
+    applyNavigationUI();
 
     // Core interaction wired first — must not depend on the optional
     // enhancements below, so a quirky/older browser can't lose Start.
