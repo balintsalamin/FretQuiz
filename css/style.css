@@ -166,7 +166,29 @@ body{
 .install-btn svg{ width:16px; height:16px; }
 
 /* =========================================================
-   Mode switch
+   Main menu (tier 1: Quizzes / Songwriting)
+   ========================================================= */
+.main-menu{
+  display:flex;
+  gap:6px;
+  background: linear-gradient(180deg, #241811, #170f0a);
+  border:1px solid rgba(207,159,79,0.22);
+  border-radius: var(--radius-md);
+  padding:5px;
+}
+.main-menu .mode-btn{
+  flex:1;
+  min-width:0;
+  font-size:14px;
+  font-weight:800;
+  letter-spacing:0.05em;
+  text-transform:uppercase;
+  padding:13px 10px;
+  border-radius: calc(var(--radius-md) - 4px);
+}
+
+/* =========================================================
+   Mode switch (tier 2: within Quizzes or Songwriting)
    ========================================================= */
 .mode-switch{
   display:flex;
@@ -319,16 +341,11 @@ body{
 /* =========================================================
    Songwriting helper
    ========================================================= */
-.songwriting-controls{
+.song-panel{
   background: linear-gradient(180deg, #201610, #170f0a);
   border:1px solid rgba(156,148,136,0.16);
   border-radius: var(--radius-md);
   padding: 14px 16px;
-  display:flex;
-  flex-direction:column;
-  gap:14px;
-}
-.song-panel{
   display:flex;
   flex-direction:column;
   gap:12px;
