@@ -1,7 +1,7 @@
 // FretQuiz service worker — caches the app shell so it works offline
 // and qualifies as an installable PWA. Bump CACHE_NAME when you ship
 // changes so old caches get cleaned up automatically.
-const CACHE_NAME = 'fretquiz-cache-v8';
+const CACHE_NAME = 'fretquiz-cache-v9';
 
 const PRECACHE_URLS = [
   './',
