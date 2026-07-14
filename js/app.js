@@ -265,6 +265,7 @@
   const songKeyRootSelect = document.getElementById('songKeyRootSelect');
   const songKeyModeSelect = document.getElementById('songKeyModeSelect');
   const songSuggestBtn = document.getElementById('songSuggestBtn');
+  const songRandomKeyBtn = document.getElementById('songRandomKeyBtn');
   const songSuggestionRow = document.getElementById('songSuggestionRow');
   const songExploreBtn = document.getElementById('songExploreBtn');
   const songDiatonicRow = document.getElementById('songDiatonicRow');
@@ -1140,6 +1141,20 @@
     renderChordChipRow(songDiatonicRow, getDiatonicChords(rootPc, isMinor, false));
   }
 
+  // Picks a random root + major/minor first, reflects that choice in
+  // the Key/Mode selects (so it's visible, not a black box), then
+  // runs the same suggestion logic as a manual pick would.
+  function runRandomKeySuggestion() {
+    const rootPc = Math.floor(Math.random() * 12);
+    const isMinor = Math.random() < 0.5;
+    songKeyRootSelect.value = String(rootPc);
+    songKeyModeSelect.value = isMinor ? 'minor' : 'major';
+    settings.songKeyRoot = rootPc;
+    settings.songKeyIsMinor = isMinor;
+    saveState();
+    runSuggestChords();
+  }
+
   function runKeyFinder() {
     const parsed = parseProgression(keyfinderInput.value).filter(c => c.valid);
     keyfinderResult.hidden = true;
@@ -1184,6 +1199,7 @@
       saveState();
     });
     songSuggestBtn.addEventListener('click', runSuggestChords);
+    songRandomKeyBtn.addEventListener('click', runRandomKeySuggestion);
     songExploreBtn.addEventListener('click', () => {
       if (state.songwriting.lastSuggestion) sendToProgression(state.songwriting.lastSuggestion, 0);
     });
